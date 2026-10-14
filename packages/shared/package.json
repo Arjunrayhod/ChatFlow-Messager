@@ -1,0 +1,19 @@
+{
+  "name": "@chatflow/shared",
+  "version": "1.0.0",
+  "description": "Shared contracts, types, and event definitions for ChatFlow",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.7",
+    "typescript": "^5.4.5"
+  }
+}

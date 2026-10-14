@@ -1,0 +1,6 @@
+node_modules
+dist
+.expo
+build
+coverage
+*.min.js
