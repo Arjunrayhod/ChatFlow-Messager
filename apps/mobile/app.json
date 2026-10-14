@@ -4,7 +4,6 @@
     "slug": "chatflow",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
       "backgroundColor": "#008069"
@@ -14,13 +13,9 @@
       "bundleIdentifier": "com.chatflow.app"
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#008069"
-      },
       "package": "com.chatflow.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
     "plugins": [
