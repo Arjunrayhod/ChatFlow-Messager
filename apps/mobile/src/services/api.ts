@@ -62,3 +62,99 @@ export async function checkServerHealth(): Promise<ApiResponse<HealthCheckData>>
     return createErrorResponse('INTERNAL_ERROR', message);
   }
 }
+
+import {
+  User,
+  CreateUserDto,
+  SyncUserResponse,
+  CheckUsernameResponse,
+} from '@chatflow/shared';
+
+/**
+ * Checks if a username is available in real-time.
+ */
+export async function checkUsernameAvailability(
+  username: string
+): Promise<ApiResponse<CheckUsernameResponse>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/users/check-username?username=${encodeURIComponent(username)}`,
+      {
+        headers: { Accept: 'application/json' },
+      }
+    );
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Synchronizes user authentication session and checks onboarding status.
+ */
+export async function syncUserSession(
+  token: string
+): Promise<ApiResponse<SyncUserResponse>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/users/sync`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Completes profile onboarding by submitting display name and unique @username.
+ */
+export async function onboardUserProfile(
+  token: string,
+  dto: CreateUserDto
+): Promise<ApiResponse<User>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/users/onboard`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(dto),
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Retrieves the currently authenticated user's profile.
+ */
+export async function getCurrentUserProfile(
+  token: string
+): Promise<ApiResponse<User>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/users/me`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}

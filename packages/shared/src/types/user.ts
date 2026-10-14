@@ -56,3 +56,17 @@ export interface Contact {
   createdAt: string;
   user: UserProfile;
 }
+
+/** Response payload for user synchronization with Firebase auth. */
+export interface SyncUserResponse {
+  user: User | null;
+  isOnboarded: boolean;
+}
+
+/** Response payload for username availability verification. */
+export interface CheckUsernameResponse {
+  username: string;
+  available: boolean;
+  reason?: string;
+}
+

@@ -10,6 +10,7 @@ import { createErrorResponse } from '@chatflow/shared';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { healthRouter } from './routes/health';
+import { usersRouter } from './routes/users';
 import { notFoundHandler } from './middlewares/not-found';
 import { errorHandler } from './middlewares/error-handler';
 
@@ -74,6 +75,7 @@ export function createApp(): Application {
 
   // Routes
   app.use('/health', healthRouter);
+  app.use('/api/users', usersRouter);
 
   // Fallthrough 404 & error handling
   app.use(notFoundHandler);

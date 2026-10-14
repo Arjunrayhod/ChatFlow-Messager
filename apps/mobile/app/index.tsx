@@ -1,22 +1,26 @@
 /**
- * @file Home / Gateway Screen displaying backend connectivity status.
+ * @file Home / Gateway Screen displaying backend connectivity status and Auth State.
  * Strict compliance with RULE 0.1 (No phone numbers) and RULE 0.7 (Design system tokens).
  */
 
 import React, { useEffect } from 'react';
 import { View, StyleSheet, ScrollView, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { tokens } from '../src/theme/tokens';
 import { Text } from '../src/components/atoms/Text';
 import { Button } from '../src/components/atoms/Button';
 import { Badge } from '../src/components/atoms/Badge';
+import { Avatar } from '../src/components/atoms/Avatar';
 import { useHealthStore } from '../src/store/useHealthStore';
+import { useAuthStore } from '../src/store/useAuthStore';
 
 /**
- * Gateway screen rendering backend health and connection state.
+ * Gateway screen rendering backend health and authenticated user state.
  */
 export default function GatewayScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
@@ -24,11 +28,18 @@ export default function GatewayScreen() {
     isConnected,
     latencyMs,
     serverData,
-    isLoading,
-    errorMessage,
+    isLoading: isCheckingHealth,
+    errorMessage: healthError,
     lastChecked,
     checkHealth,
   } = useHealthStore();
+
+  const {
+    user,
+    isAuthenticated,
+    isOnboarded,
+    signOut,
+  } = useAuthStore();
 
   useEffect(() => {
     // Initial health probe on mount
@@ -36,7 +47,7 @@ export default function GatewayScreen() {
   }, [checkHealth]);
 
   const renderStatusBadge = () => {
-    if (isLoading && isConnected === null) {
+    if (isCheckingHealth && isConnected === null) {
       return (
         <View style={styles.badgeRow}>
           <Badge variant="away" label="CHECKING..." />
@@ -76,9 +87,7 @@ export default function GatewayScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scrollContainer,
-          {
-            paddingHorizontal: tokens.spacing.md,
-          },
+          { paddingHorizontal: tokens.spacing.md },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -112,7 +121,117 @@ export default function GatewayScreen() {
           </Text>
         </View>
 
-        {/* Status Card */}
+        {/* Phase 2: Active User Card or Auth CTA */}
+        {isAuthenticated && user && isOnboarded ? (
+          <View
+            style={[
+              styles.userCard,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.divider,
+                borderRadius: tokens.radii.lg,
+                padding: tokens.spacing.lg,
+                ...tokens.elevation[1],
+              },
+            ]}
+          >
+            <View style={styles.userHeaderRow}>
+              <Avatar
+                name={user.displayName}
+                uri={user.avatarUrl}
+                size="lg"
+                presence="online"
+              />
+              <View style={styles.userMetaCol}>
+                <Text variant="h3">{user.displayName}</Text>
+                <Text variant="bodyMedium" colorRole="primary">
+                  @{user.username}
+                </Text>
+                <Text variant="caption" colorRole="secondary">
+                  {user.email}
+                </Text>
+              </View>
+            </View>
+
+            {user.bio && (
+              <View
+                style={[
+                  styles.bioBox,
+                  {
+                    backgroundColor: theme.surfaceEmphasized,
+                    borderRadius: tokens.radii.sm,
+                    padding: tokens.spacing.sm,
+                  },
+                ]}
+              >
+                <Text variant="caption" colorRole="secondary">
+                  About: {user.bio}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.authenticatedActions}>
+              <Button
+                label="Sign Out"
+                onPress={() => void signOut()}
+                variant="secondary"
+                size="md"
+                fullWidth={true}
+              />
+            </View>
+          </View>
+        ) : isAuthenticated && !isOnboarded ? (
+          <View
+            style={[
+              styles.userCard,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.warning,
+                borderRadius: tokens.radii.lg,
+                padding: tokens.spacing.lg,
+              },
+            ]}
+          >
+            <Text variant="h3">Setup Incomplete</Text>
+            <Text variant="body" colorRole="secondary">
+              You are signed in with Google, but have not picked your unique @username yet.
+            </Text>
+            <Button
+              label="Complete Onboarding Now"
+              onPress={() => router.push('/(auth)/onboarding')}
+              variant="primary"
+              size="md"
+              fullWidth={true}
+            />
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.authCard,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.divider,
+                borderRadius: tokens.radii.lg,
+                padding: tokens.spacing.lg,
+                ...tokens.elevation[1],
+              },
+            ]}
+          >
+            <Text variant="h3">Phase 2 — Authentication</Text>
+            <Text variant="body" colorRole="secondary">
+              Sign in with your Google account. Zero phone numbers required.
+            </Text>
+            <Button
+              label="Sign In with Google"
+              onPress={() => router.push('/(auth)/sign-in')}
+              variant="primary"
+              size="md"
+              fullWidth={true}
+            />
+          </View>
+        )}
+
+        {/* Backend Status Card */}
         <View
           style={[
             styles.card,
@@ -126,12 +245,12 @@ export default function GatewayScreen() {
           ]}
         >
           <Text variant="h3" style={styles.cardHeader}>
-            Phase 1 — System Readiness
+            Backend Infrastructure Status
           </Text>
 
           <View style={styles.statusSection}>
             <Text variant="body" colorRole="secondary">
-              Connectivity Status:
+              Liveness Probe:
             </Text>
             {renderStatusBadge()}
           </View>
@@ -151,10 +270,7 @@ export default function GatewayScreen() {
                 Service: {serverData.service} (v{serverData.version})
               </Text>
               <Text variant="caption" colorRole="secondary">
-                Server Uptime: {Math.floor(serverData.uptime)}s
-              </Text>
-              <Text variant="caption" colorRole="secondary">
-                Last checked: {lastChecked || 'Just now'}
+                Uptime: {Math.floor(serverData.uptime)}s | Last Checked: {lastChecked || 'Just now'}
               </Text>
             </View>
           )}
@@ -171,50 +287,19 @@ export default function GatewayScreen() {
               ]}
             >
               <Text variant="caption" colorRole="error">
-                {errorMessage || 'Unable to connect to backend service.'}
-              </Text>
-              <Text variant="caption" colorRole="secondary">
-                Ensure @chatflow/server is running on port 4000.
+                {healthError || 'Unable to connect to backend service.'}
               </Text>
             </View>
           )}
 
-          <View style={styles.actionContainer}>
-            <Button
-              label={isLoading ? 'Pinging Server...' : 'Check Backend Health'}
-              onPress={() => void checkHealth()}
-              variant="primary"
-              size="md"
-              isLoading={isLoading}
-              fullWidth={true}
-            />
-          </View>
-        </View>
-
-        {/* Phase Summary Card */}
-        <View
-          style={[
-            styles.infoCard,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.divider,
-              borderRadius: tokens.radii.md,
-              padding: tokens.spacing.md,
-            },
-          ]}
-        >
-          <Text variant="h4" style={styles.infoTitle}>
-            Architectural Guarantees
-          </Text>
-          <Text variant="body" colorRole="secondary" style={styles.infoItem}>
-            • Zero Phone Numbers: Identity via Firebase UID + @username
-          </Text>
-          <Text variant="body" colorRole="secondary" style={styles.infoItem}>
-            • Design System as Law: 100% tokens from tokens.ts
-          </Text>
-          <Text variant="body" colorRole="secondary" style={styles.infoItem}>
-            • Standard API Envelopes: Consistent {`{ ok, data/error }`} contract
-          </Text>
+          <Button
+            label={isCheckingHealth ? 'Pinging Server...' : 'Check Backend Health'}
+            onPress={() => void checkHealth()}
+            variant="secondary"
+            size="md"
+            isLoading={isCheckingHealth}
+            fullWidth={true}
+          />
         </View>
       </ScrollView>
     </View>
@@ -245,6 +330,29 @@ const styles = StyleSheet.create({
   brandTagline: {
     maxWidth: 300,
   },
+  authCard: {
+    borderWidth: 1,
+    gap: tokens.spacing.sm,
+  },
+  userCard: {
+    borderWidth: 1,
+    gap: tokens.spacing.md,
+  },
+  userHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.md,
+  },
+  userMetaCol: {
+    flex: 1,
+    gap: tokens.spacing.xxs,
+  },
+  bioBox: {
+    marginTop: tokens.spacing.xxs,
+  },
+  authenticatedActions: {
+    marginTop: tokens.spacing.xs,
+  },
   card: {
     borderWidth: 1,
     gap: tokens.spacing.md,
@@ -267,18 +375,5 @@ const styles = StyleSheet.create({
   },
   detailsBox: {
     gap: tokens.spacing.xxs,
-  },
-  actionContainer: {
-    marginTop: tokens.spacing.xs,
-  },
-  infoCard: {
-    borderWidth: 1,
-    gap: tokens.spacing.xs,
-  },
-  infoTitle: {
-    marginBottom: tokens.spacing.xxs,
-  },
-  infoItem: {
-    lineHeight: tokens.typography.body.lineHeight,
   },
 });
