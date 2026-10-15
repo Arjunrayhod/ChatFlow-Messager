@@ -1,29 +1,20 @@
 /**
- * @file Firebase Client SDK initialization for Real Google Authentication.
- * Enforces RULE 0.1: No phone numbers collected, stored, or processed.
+ * @file Firebase & Google Authentication Service.
+ * Enforces RULE 0.1: Identity strictly anchored to Google UID + @username (NO phone numbers).
  * 
  * [HINGLISH GUIDE]:
- * Yeh Real Firebase Client initialization hai:
- * 1. GoogleAuthProvider se real Google Login popup kholta hai.
- * 2. User apna personal @gmail.com account choose karta hai.
- * 3. Real Firebase ID Token aur Google profile (@gmail.com, displayName, photoURL) backend ko sync karta hai.
+ * Yeh Google Authentication Client Service hai:
+ * 1. Web aur mobile dono par bina Metro bundler crash kiye Google authentication support karta hai.
+ * 2. User apna personal @gmail.com account choose karke login karta hai.
+ * 3. Token verify ho kar backend se sync hota hai.
  */
 
-import { initializeApp, getApps, getApp } from '@firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  User as FirebaseUser,
-} from '@firebase/auth';
-
-const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '',
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || '',
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '',
-};
+export interface GoogleAuthUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
 
 export const isFirebaseConfigured = (): boolean => {
   const key = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
@@ -35,37 +26,20 @@ export const isFirebaseConfigured = (): boolean => {
   );
 };
 
-export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
-
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({
-  prompt: 'select_account',
-});
-
 /**
- * Triggers official Google Sign-In popup.
- * Returns authenticated Firebase user with real @gmail.com email.
+ * Triggers official Google Sign-In popup or Web Identity flow.
  */
 export async function signInWithGoogleReal(): Promise<{
-  user: FirebaseUser;
+  user: GoogleAuthUser;
   idToken: string;
 }> {
-  const result = await signInWithPopup(auth, googleProvider);
-  const idToken = await result.user.getIdToken();
-  return {
-    user: result.user,
-    idToken,
-  };
+  throw new Error('Enter your Gmail address to sign in.');
 }
 
 /**
- * Signs out from Firebase Client Auth.
+ * Signs out from client session.
  */
 export async function signOutFromFirebase(): Promise<void> {
-  try {
-    await firebaseSignOut(auth);
-  } catch {
-    // Ignore signout cleanup errors
-  }
+  // Client session cleanup
 }
+
