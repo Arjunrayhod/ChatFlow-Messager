@@ -85,6 +85,9 @@ export function initSocketServer(
     const { userId, username } = socket.data;
     logger.info({ userId, socketId: socket.id }, `Socket connected: ${username} (${userId})`);
 
+    // Join user's personal channel for direct user notifications & screenshot alerts
+    void socket.join(`user_${userId}`);
+
     // 1. Join Chat Room
     socket.on('join_room', ({ chatId }) => {
       void socket.join(chatId);
@@ -184,6 +187,51 @@ export function initSocketServer(
         messageId,
         chatId,
         status: 'read',
+      });
+    });
+
+    // 8. Snapchat-Style Screenshot Detection Alert
+    socket.on(
+      'screenshot_alert',
+      async ({ targetType, targetId, ownerId, takerUserId, takerUsername, takerDisplayName }) => {
+        logger.warn(
+          { targetType, targetId, ownerId, takerUsername },
+          `Snapchat Screenshot Alert: ${takerUsername} took a screenshot of ${targetType} ${targetId}`
+        );
+
+        const timestamp = new Date().toISOString();
+
+        if (targetType === 'status') {
+          // Record in status views that this user screenshotted
+          await db.recordStatusView(targetId, takerUserId, true);
+          // Alert story owner directly on their private channel
+          io.to(`user_${ownerId}`).emit('screenshot_detected', {
+            targetType,
+            targetId,
+            takerUserId,
+            takerUsername,
+            takerDisplayName,
+            timestamp,
+          });
+        } else if (targetType === 'chat') {
+          // Broadcast to chat room so both participants see the Snapchat-style alert
+          io.to(targetId).emit('screenshot_detected', {
+            targetType,
+            targetId,
+            takerUserId,
+            takerUsername,
+            takerDisplayName,
+            timestamp,
+          });
+        }
+      }
+    );
+
+    // 9. Status Published / Deleted Notification
+    socket.on('status_published', ({ statusId: _statusId, userId: pubUserId }) => {
+      socket.broadcast.emit('status_feed_update', {
+        userId: pubUserId,
+        action: 'created',
       });
     });
 

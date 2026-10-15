@@ -34,9 +34,14 @@ import { TextInputField } from '../../src/components/atoms/TextInputField';
 import { ChatListItem } from '../../src/components/molecules/ChatListItem';
 import { EmptyState } from '../../src/components/molecules/EmptyState';
 import { QRCodeModal } from '../../src/components/molecules/QRCodeModal';
+import { StoriesTray } from '../../src/components/molecules/StoriesTray';
+import { StatusViewerModal } from '../../src/components/molecules/StatusViewerModal';
+import { CreateStatusModal } from '../../src/components/molecules/CreateStatusModal';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useChatStore } from '../../src/store/useChatStore';
-import { Contact, UserProfile } from '@chatflow/shared';
+import { useStatusStore } from '../../src/store/useStatusStore';
+import { getSocket } from '../../src/services/socket';
+import { Contact, UserProfile, UserStoryGroup } from '@chatflow/shared';
 
 export default function ChatsScreen() {
   const router = useRouter();
@@ -71,12 +76,54 @@ export default function ChatsScreen() {
     setIsQROpen(true);
   };
 
-  // Load contacts when screen mounts or user token changes
+  // Status / Stories State
+  const {
+    myStories,
+    contactStories,
+    fetchFeed,
+    activeScreenshotNotice,
+    setScreenshotNotice,
+  } = useStatusStore();
+  const [activeStoryGroup, setActiveStoryGroup] = useState<UserStoryGroup | null>(null);
+  const [isStoryViewerOpen, setIsStoryViewerOpen] = useState(false);
+  const [isStatusCreatorOpen, setIsStatusCreatorOpen] = useState(false);
+
+  // Load contacts and stories when screen mounts or user token changes
   useEffect(() => {
     if (token) {
       void fetchContacts(token);
+      void fetchFeed(token);
     }
-  }, [token, fetchContacts]);
+  }, [token, fetchContacts, fetchFeed]);
+
+  // Real-time Snapchat Screenshot alerts & stories feed update
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const onScreenshot = (payload: {
+      targetType: 'status' | 'chat';
+      targetId: string;
+      takerUserId: string;
+      takerUsername: string;
+      takerDisplayName: string;
+      timestamp: string;
+    }) => {
+      setScreenshotNotice(payload);
+    };
+
+    const onFeedUpdate = () => {
+      if (token) void fetchFeed(token);
+    };
+
+    socket.on('screenshot_detected', onScreenshot);
+    socket.on('status_feed_update', onFeedUpdate);
+
+    return () => {
+      socket.off('screenshot_detected', onScreenshot);
+      socket.off('status_feed_update', onFeedUpdate);
+    };
+  }, [token, fetchFeed, setScreenshotNotice]);
 
   // Debounced search inside modal
   useEffect(() => {
@@ -184,6 +231,43 @@ export default function ChatsScreen() {
           </Pressable>
         )}
       </View>
+
+      {/* Snapchat-Style Top Screenshot Detection Notification Banner */}
+      {activeScreenshotNotice && (
+        <View style={styles.topScreenshotNotice}>
+          <Ionicons name="camera" size={16} color="#FFFFFF" />
+          <Text variant="caption" style={styles.topScreenshotText}>
+            Alert: @{activeScreenshotNotice.takerUsername} took a screenshot of your {activeScreenshotNotice.targetType}!
+          </Text>
+        </View>
+      )}
+
+      {/* WhatsApp / Instagram Stories Tray */}
+      <StoriesTray
+        myStories={myStories}
+        contactStories={contactStories}
+        onOpenMyStatus={() => {
+          if (myStories.length > 0) {
+            setActiveStoryGroup({
+              userId: user?.id || 'me',
+              username: user?.username || 'me',
+              displayName: user?.displayName || 'My Status',
+              avatarUrl: user?.avatarUrl,
+              hasUnseen: false,
+              lastUpdated: myStories[myStories.length - 1].createdAt,
+              stories: myStories,
+            });
+            setIsStoryViewerOpen(true);
+          } else {
+            setIsStatusCreatorOpen(true);
+          }
+        }}
+        onAddNewStatus={() => setIsStatusCreatorOpen(true)}
+        onOpenContactStory={(group) => {
+          setActiveStoryGroup(group);
+          setIsStoryViewerOpen(true);
+        }}
+      />
 
       {/* Main Conversation / Contact List */}
       {isLoadingContacts && contacts.length === 0 ? (
@@ -453,12 +537,49 @@ export default function ChatsScreen() {
         onClose={() => setIsQROpen(false)}
         initialTab={qrModalInitialTab}
       />
+
+      {/* Full-Screen Status Story Viewer Modal */}
+      <StatusViewerModal
+        visible={isStoryViewerOpen}
+        storyGroup={activeStoryGroup}
+        onClose={() => {
+          setIsStoryViewerOpen(false);
+          setActiveStoryGroup(null);
+        }}
+      />
+
+      {/* Status Creator Modal */}
+      <CreateStatusModal
+        visible={isStatusCreatorOpen}
+        onClose={() => setIsStatusCreatorOpen(false)}
+        onSuccess={() => {
+          if (token) void fetchFeed(token);
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  topScreenshotNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EA0038',
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: 8,
+    marginHorizontal: tokens.spacing.md,
+    marginTop: tokens.spacing.xs,
+    borderRadius: tokens.radii.md,
+    ...tokens.elevation[2],
+  },
+  topScreenshotText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12,
     flex: 1,
   },
   searchContainer: {

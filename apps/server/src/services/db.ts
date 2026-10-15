@@ -19,7 +19,13 @@ import {
   ChatMessage,
   MessageType,
   MessageDeliveryStatus,
+  StatusItem,
+  StatusViewer,
+  UserStoryGroup,
+  CreateStatusDto,
 } from '@chatflow/shared';
+import fs from 'fs';
+import path from 'path';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -30,6 +36,10 @@ export class DatabaseService {
   private memoryUsers: Map<string, User> = new Map();
   // In-memory messages store: chatId -> ChatMessage[]
   private memoryMessages: Map<string, ChatMessage[]> = new Map();
+  // In-memory status store: statusId -> StatusItem
+  private memoryStatuses: Map<string, StatusItem> = new Map();
+  // In-memory status views: statusId -> StatusViewer[]
+  private memoryStatusViews: Map<string, StatusViewer[]> = new Map();
 
   constructor() {
     if (
@@ -621,6 +631,290 @@ export class DatabaseService {
       }
     }
     return false;
+  }
+
+  /**
+   * Creates a new status / story (24-hour expiration).
+   */
+  async createStatus(userId: string, data: CreateStatusDto): Promise<StatusItem> {
+    const user = await this.findUserById(userId);
+    const id = `stat_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+    const statusItem: StatusItem = {
+      id,
+      userId,
+      user: user
+        ? {
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+            bio: user.bio,
+            presenceStatus: user.presenceStatus,
+            lastSeen: user.lastSeen,
+          }
+        : undefined,
+      mediaUrl: data.mediaUrl || null,
+      mediaType: data.mediaType,
+      caption: data.caption || null,
+      backgroundColor: data.backgroundColor || '#075E54',
+      durationSeconds: data.durationSeconds || (data.mediaType === 'video' ? 15 : 5),
+      createdAt: now.toISOString(),
+      expiresAt,
+      viewersCount: 0,
+      hasViewed: false,
+      isOwn: true,
+      viewers: [],
+    };
+
+    if (this.supabase) {
+      try {
+        await this.supabase.from('statuses').insert({
+          id: statusItem.id,
+          user_id: userId,
+          media_url: statusItem.mediaUrl,
+          media_type: statusItem.mediaType,
+          caption: statusItem.caption,
+          background_color: statusItem.backgroundColor,
+          duration_seconds: statusItem.durationSeconds,
+          created_at: statusItem.createdAt,
+          expires_at: statusItem.expiresAt,
+        });
+      } catch (err) {
+        logger.warn({ err }, 'Supabase createStatus exception, using memory fallback');
+      }
+    }
+
+    this.memoryStatuses.set(id, statusItem);
+    this.memoryStatusViews.set(id, []);
+    return statusItem;
+  }
+
+  /**
+   * Fetches status feed: user's own active stories + active stories from contacts.
+   */
+  async getStatusFeed(currentUserId: string): Promise<{ myStories: StatusItem[]; contactStories: UserStoryGroup[] }> {
+    const now = new Date();
+
+    // 1. Find all active statuses
+    const allStatuses = Array.from(this.memoryStatuses.values()).filter(
+      (s) => new Date(s.expiresAt) > now
+    );
+
+    // 2. Separate user's own stories
+    const myStories = allStatuses
+      .filter((s) => s.userId === currentUserId)
+      .map((s) => {
+        const viewers = this.memoryStatusViews.get(s.id) || [];
+        return {
+          ...s,
+          isOwn: true,
+          viewersCount: viewers.length,
+          viewers,
+        };
+      })
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    // 3. Get user's contacts
+    const contacts = await this.getContacts(currentUserId);
+    const contactUserIds = new Set(contacts.map((c) => c.contactUserId));
+
+    const contactStoriesMap = new Map<string, StatusItem[]>();
+
+    for (const status of allStatuses) {
+      if (status.userId === currentUserId) continue;
+
+      // In development mode or if contacts exist, match contacts or include users
+      if (contactUserIds.size > 0 && !contactUserIds.has(status.userId)) {
+        continue;
+      }
+
+      const existing = contactStoriesMap.get(status.userId) || [];
+      const viewers = this.memoryStatusViews.get(status.id) || [];
+      const hasViewed = viewers.some((v) => v.userId === currentUserId);
+
+      existing.push({
+        ...status,
+        hasViewed,
+        viewersCount: viewers.length,
+      });
+      contactStoriesMap.set(status.userId, existing);
+    }
+
+    // Build UserStoryGroup
+    const contactStories: UserStoryGroup[] = [];
+    for (const [userId, stories] of contactStoriesMap.entries()) {
+      if (stories.length === 0) continue;
+      stories.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const firstStory = stories[0]!;
+      const lastStory = stories[stories.length - 1]!;
+      const u = firstStory.user || (await this.findUserById(userId));
+      const hasUnseen = stories.some((s) => !s.hasViewed);
+      const lastUpdated = lastStory.createdAt;
+
+      contactStories.push({
+        userId,
+        username: u?.username || 'unknown',
+        displayName: u?.displayName || 'User',
+        avatarUrl: u?.avatarUrl || null,
+        hasUnseen,
+        lastUpdated,
+        stories,
+      });
+    }
+
+    // Sort: users with unseen stories first, then by last updated
+    contactStories.sort((a, b) => {
+      if (a.hasUnseen && !b.hasUnseen) return -1;
+      if (!a.hasUnseen && b.hasUnseen) return 1;
+      return new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime();
+    });
+
+    return { myStories, contactStories };
+  }
+
+  /**
+   * Records a view on a status update (and tracks if viewer screenshotted).
+   */
+  async recordStatusView(
+    statusId: string,
+    viewerId: string,
+    hasScreenshotted = false
+  ): Promise<{ success: boolean; viewersCount: number }> {
+    const status = this.memoryStatuses.get(statusId);
+    if (!status) return { success: false, viewersCount: 0 };
+
+    // Don't count owner viewing their own status
+    if (status.userId === viewerId) {
+      const existing = this.memoryStatusViews.get(statusId) || [];
+      return { success: true, viewersCount: existing.length };
+    }
+
+    const viewers = this.memoryStatusViews.get(statusId) || [];
+    const existingIndex = viewers.findIndex((v) => v.userId === viewerId);
+
+    if (existingIndex >= 0) {
+      const existingViewer = viewers[existingIndex];
+      if (existingViewer && hasScreenshotted && !existingViewer.hasScreenshotted) {
+        existingViewer.hasScreenshotted = true;
+        existingViewer.screenshottedAt = new Date().toISOString();
+      }
+    } else {
+      const viewerUser = await this.findUserById(viewerId);
+      if (viewerUser) {
+        viewers.push({
+          userId: viewerUser.id,
+          username: viewerUser.username,
+          displayName: viewerUser.displayName,
+          avatarUrl: viewerUser.avatarUrl,
+          viewedAt: new Date().toISOString(),
+          hasScreenshotted: !!hasScreenshotted,
+          screenshottedAt: hasScreenshotted ? new Date().toISOString() : null,
+        });
+      }
+    }
+
+    this.memoryStatusViews.set(statusId, viewers);
+    status.viewersCount = viewers.length;
+
+    if (this.supabase) {
+      try {
+        await this.supabase.from('status_views').upsert({
+          status_id: statusId,
+          viewer_id: viewerId,
+          viewed_at: new Date().toISOString(),
+          has_screenshotted: hasScreenshotted,
+          screenshotted_at: hasScreenshotted ? new Date().toISOString() : null,
+        });
+      } catch (err) {
+        logger.warn({ err }, 'Supabase recordStatusView exception');
+      }
+    }
+
+    return { success: true, viewersCount: viewers.length };
+  }
+
+  /**
+   * Returns all viewers of a user's own status.
+   */
+  async getStatusViewers(statusId: string, ownerId: string): Promise<StatusViewer[]> {
+    const status = this.memoryStatuses.get(statusId);
+    if (!status) return [];
+    if (status.userId !== ownerId) return [];
+
+    return this.memoryStatusViews.get(statusId) || [];
+  }
+
+  /**
+   * Deletes a status before expiration.
+   */
+  async deleteStatus(statusId: string, ownerId: string): Promise<boolean> {
+    const status = this.memoryStatuses.get(statusId);
+    if (!status) return false;
+    if (status.userId !== ownerId) return false;
+
+    // Delete associated media file if local upload
+    if (status.mediaUrl && status.mediaUrl.startsWith('/uploads/')) {
+      try {
+        const filePath = path.resolve(__dirname, '..', '..', status.mediaUrl.replace(/^\//, ''));
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to delete status media file from disk');
+      }
+    }
+
+    this.memoryStatuses.delete(statusId);
+    this.memoryStatusViews.delete(statusId);
+
+    if (this.supabase) {
+      try {
+        await this.supabase.from('statuses').delete().eq('id', statusId);
+      } catch (err) {
+        logger.warn({ err }, 'Supabase deleteStatus exception');
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Prunes expired statuses older than 24 hours and cleans storage.
+   */
+  async deleteExpiredStatuses(): Promise<number> {
+    const now = new Date();
+    let deletedCount = 0;
+
+    for (const [id, status] of this.memoryStatuses.entries()) {
+      if (new Date(status.expiresAt) <= now) {
+        if (status.mediaUrl && status.mediaUrl.startsWith('/uploads/')) {
+          try {
+            const filePath = path.resolve(__dirname, '..', '..', status.mediaUrl.replace(/^\//, ''));
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          } catch {
+            // ignore
+          }
+        }
+        this.memoryStatuses.delete(id);
+        this.memoryStatusViews.delete(id);
+        deletedCount++;
+      }
+    }
+
+    if (this.supabase) {
+      try {
+        await this.supabase.from('statuses').delete().lte('expires_at', now.toISOString());
+      } catch (err) {
+        logger.warn({ err }, 'Supabase deleteExpiredStatuses exception');
+      }
+    }
+
+    return deletedCount;
   }
 
   /**

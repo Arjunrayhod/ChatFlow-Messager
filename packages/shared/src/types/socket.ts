@@ -33,6 +33,15 @@ export interface ClientToServerEvents {
     candidate: unknown;
   }) => void;
   call_hangup: (payload: { targetUserId: string; reason?: string }) => void;
+  screenshot_alert: (payload: {
+    targetType: 'status' | 'chat';
+    targetId: string;
+    ownerId: string;
+    takerUserId: string;
+    takerUsername: string;
+    takerDisplayName: string;
+  }) => void;
+  status_published: (payload: { statusId: string; userId: string }) => void;
 }
 
 /** Server-to-client socket event payloads. */
@@ -68,6 +77,15 @@ export interface ServerToClientEvents {
     candidate: unknown;
   }) => void;
   call_ended: (payload: { peerUserId: string; reason?: string }) => void;
+  screenshot_detected: (payload: {
+    targetType: 'status' | 'chat';
+    targetId: string;
+    takerUserId: string;
+    takerUsername: string;
+    takerDisplayName: string;
+    timestamp: string;
+  }) => void;
+  status_feed_update: (payload: { userId: string; action: 'created' | 'deleted' }) => void;
   error: (payload: { code: string; message: string }) => void;
 }
 

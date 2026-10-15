@@ -75,6 +75,7 @@ export default function ChatRoomScreen() {
   const [selectedMedia, setSelectedMedia] = useState<SelectedMediaFile | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [lightboxData, setLightboxData] = useState<MediaLightboxData | null>(null);
+  const [chatScreenshotAlert, setChatScreenshotAlert] = useState<string | null>(null);
 
   const recipientId = params.id;
   const recipientName = params.name || 'Conversation';
@@ -244,17 +245,56 @@ export default function ChatRoomScreen() {
       }
     };
 
+    const handleScreenshotDetected = (payload: {
+      targetType: 'status' | 'chat';
+      targetId: string;
+      takerUserId: string;
+      takerUsername: string;
+      takerDisplayName: string;
+    }) => {
+      if (payload.targetId === chatId || payload.targetType === 'chat') {
+        setChatScreenshotAlert(`⚠️ @${payload.takerUsername} took a screenshot of this chat!`);
+        setTimeout(() => setChatScreenshotAlert(null), 7000);
+      }
+    };
+
     socket.on('message_new', handleMessageNew);
     socket.on('user_typing', handleUserTyping);
     socket.on('message_status_update', handleStatusUpdate);
+    socket.on('screenshot_detected', handleScreenshotDetected);
 
     return () => {
       leaveRoom(chatId);
       socket.off('message_new', handleMessageNew);
       socket.off('user_typing', handleUserTyping);
       socket.off('message_status_update', handleStatusUpdate);
+      socket.off('screenshot_detected', handleScreenshotDetected);
     };
   }, [chatId, token, loadHistory, receiveMessage, setUserTyping, updateMessageStatus]);
+
+  // Keyboard shortcut screenshot detection for Web in Chat
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const handleKeyUp = (e: KeyboardEvent) => {
+        if (e.key === 'PrintScreen' || (e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4'))) {
+          const socket = getSocket();
+          if (socket?.connected && user) {
+            socket.emit('screenshot_alert', {
+              targetType: 'chat',
+              targetId: chatId,
+              ownerId: recipientId,
+              takerUserId: user.id,
+              takerUsername: user.username,
+              takerDisplayName: user.displayName,
+            });
+          }
+        }
+      };
+      window.addEventListener('keyup', handleKeyUp);
+      return () => window.removeEventListener('keyup', handleKeyUp);
+    }
+    return undefined;
+  }, [chatId, recipientId, user]);
 
   const handleSend = () => {
     if (!inputText.trim() || !user) return;
@@ -328,10 +368,39 @@ export default function ChatRoomScreen() {
                 accessibilityLabel="Voice Call"
                 onPress={() => alert('Voice calling arriving in Phase 5')}
               />
+              <IconButton
+                name="camera-outline"
+                size="md"
+                color={theme.textInverse}
+                accessibilityLabel="Simulate Screenshot Alert"
+                onPress={() => {
+                  if (user) {
+                    const socket = getSocket();
+                    socket?.emit('screenshot_alert', {
+                      targetType: 'chat',
+                      targetId: chatId,
+                      ownerId: recipientId,
+                      takerUserId: user.id,
+                      takerUsername: user.username,
+                      takerDisplayName: user.displayName,
+                    });
+                  }
+                }}
+              />
             </View>
           ),
         }}
       />
+
+      {/* Snapchat-Style Screenshot Detection Banner */}
+      {chatScreenshotAlert && (
+        <View style={styles.chatScreenshotBanner}>
+          <Ionicons name="camera" size={16} color="#FFFFFF" />
+          <Text variant="caption" style={styles.chatScreenshotBannerText}>
+            {chatScreenshotAlert}
+          </Text>
+        </View>
+      )}
 
       {/* Messages List Area */}
       {isLoadingHistory && messages.length === 0 ? (
@@ -556,5 +625,23 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  chatScreenshotBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EA0038',
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: 8,
+    marginHorizontal: tokens.spacing.md,
+    marginTop: tokens.spacing.xs,
+    borderRadius: tokens.radii.md,
+    ...tokens.elevation[2],
+  },
+  chatScreenshotBannerText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12,
+    flex: 1,
   },
 });

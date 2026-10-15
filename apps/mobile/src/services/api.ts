@@ -2,7 +2,14 @@
  * @file API client service for ChatFlow mobile application.
  */
 
-import { ApiResponse, createErrorResponse } from '@chatflow/shared';
+import {
+  ApiResponse,
+  createErrorResponse,
+  StatusItem,
+  StatusViewer,
+  UserStoryGroup,
+  CreateStatusDto,
+} from '@chatflow/shared';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -326,5 +333,176 @@ export async function uploadMedia(
     return createErrorResponse('INTERNAL_ERROR', message);
   }
 }
+
+/**
+ * Fetches active 24-hour status stories for current user and contacts.
+ */
+export async function fetchStatusFeed(
+  token: string
+): Promise<ApiResponse<{ myStories: StatusItem[]; contactStories: UserStoryGroup[] }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/status/feed`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch stories feed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Creates a text status update.
+ */
+export async function createTextStatus(
+  token: string,
+  dto: CreateStatusDto
+): Promise<ApiResponse<StatusItem>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/status/create`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(dto),
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to create status';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+export interface UploadStatusMediaPayload {
+  fileName: string;
+  mimeType: string;
+  data: string;
+  mediaType: 'image' | 'video';
+  caption?: string | null;
+  backgroundColor?: string | null;
+}
+
+/**
+ * Uploads uncompressed HD photo/video as a status update.
+ */
+export async function uploadStatusMedia(
+  token: string,
+  payload: UploadStatusMediaPayload
+): Promise<ApiResponse<StatusItem>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/status/upload`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to upload status';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Records a view on a status story (and tracks if viewer screenshotted).
+ */
+export async function recordStatusView(
+  token: string,
+  statusId: string,
+  hasScreenshotted = false
+): Promise<ApiResponse<{ success: boolean; viewersCount: number }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}/view`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ hasScreenshotted }),
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to record view';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Fetches viewers list for a user's own status story.
+ */
+export async function fetchStatusViewers(
+  token: string,
+  statusId: string
+): Promise<ApiResponse<StatusViewer[]>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}/viewers`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch viewers';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Manually deletes a status story before 24h.
+ */
+export async function deleteStatus(
+  token: string,
+  statusId: string
+): Promise<ApiResponse<{ success: boolean; id: string }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to delete status';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Explicit Snapchat-style screenshot alert webhook.
+ */
+export async function reportScreenshotAlert(
+  token: string,
+  statusId: string
+): Promise<ApiResponse<{ alertRecorded: boolean; takerUsername: string; timestamp: string }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}/screenshot-alert`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to report screenshot';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
 
 
