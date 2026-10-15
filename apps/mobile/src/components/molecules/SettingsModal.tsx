@@ -19,6 +19,7 @@ import {
   Pressable,
   useColorScheme,
   Alert,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +28,7 @@ import { tokens } from '../../theme/tokens';
 import { Text } from '../atoms/Text';
 import { Avatar } from '../atoms/Avatar';
 import { Button } from '../atoms/Button';
+import { BrandFooter } from '../atoms/BrandFooter';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useHealthStore } from '../../store/useHealthStore';
 import { QRCodeModal } from './QRCodeModal';
@@ -293,6 +295,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </Text>
               </View>
             </View>
+
+            {/* Creator / Cloud Architect Profile */}
+            <Pressable
+              onPress={() => void Linking.openURL('https://www.linkedin.com/in/arjun-rathod-cloud/')}
+              style={({ pressed }) => [
+                styles.settingItem,
+                {
+                  backgroundColor: theme.surface,
+                  borderBottomColor: theme.divider,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+              accessibilityRole="link"
+              accessibilityLabel="Connect with Arjun Rathod on LinkedIn"
+            >
+              <View
+                style={[
+                  styles.iconCircle,
+                  { backgroundColor: '#0077B515' },
+                ]}
+              >
+                <Ionicons name="logo-linkedin" size={22} color="#0077B5" />
+              </View>
+              <View style={styles.itemTextCol}>
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                  Creator & Cloud Architect
+                </Text>
+                <Text variant="caption" colorRole="secondary">
+                  Arjun Rathod • Tap to visit LinkedIn
+                </Text>
+              </View>
+              <Ionicons name="open-outline" size={18} color={theme.textSecondary} />
+            </Pressable>
           </View>
 
           {/* WhatsApp-Style Log Out Button */}
@@ -330,18 +365,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </View>
 
           {/* Footer Branding */}
-          <View style={styles.footerBrand}>
-            <Text variant="caption" colorRole="disabled" align="center">
-              from
-            </Text>
-            <Text
-              variant="caption"
-              align="center"
-              style={[styles.footerMeta, { color: theme.primary }]}
-            >
-              CHATFLOW
-            </Text>
-          </View>
+          <BrandFooter style={styles.footerBrand} showSubtitle={true} />
         </ScrollView>
 
         {/* WhatsApp-Style Logout Confirmation Modal */}

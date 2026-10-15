@@ -37,6 +37,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../src/theme/tokens';
 import { Text } from '../../src/components/atoms/Text';
 import { Avatar } from '../../src/components/atoms/Avatar';
+import { BrandFooter } from '../../src/components/atoms/BrandFooter';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { isFirebaseConfigured } from '../../src/services/firebase';
 
@@ -224,19 +225,8 @@ export default function SignInScreen() {
           </Pressable>
         </View>
 
-        {/* WhatsApp-Style Footer */}
-        <View style={styles.footerContainer}>
-          <Text variant="caption" colorRole="disabled" align="center">
-            from
-          </Text>
-          <Text
-            variant="caption"
-            align="center"
-            style={[styles.footerBrand, { color: theme.primary }]}
-          >
-            CHATFLOW
-          </Text>
-        </View>
+        {/* WhatsApp-Style Footer with Creator Branding */}
+        <BrandFooter style={styles.footerContainer} showSubtitle={true} />
       </ScrollView>
 
       {/* Google Account Sign-In Modal */}

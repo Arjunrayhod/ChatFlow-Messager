@@ -18,6 +18,7 @@ import { View, StyleSheet, ActivityIndicator, useColorScheme, Image } from 'reac
 import { useRouter } from 'expo-router';
 import { tokens } from '../src/theme/tokens';
 import { Text } from '../src/components/atoms/Text';
+import { BrandFooter } from '../src/components/atoms/BrandFooter';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useHealthStore } from '../src/store/useHealthStore';
 
@@ -70,19 +71,8 @@ export default function GatewayScreen() {
         />
       </View>
 
-      {/* Splash Footer */}
-      <View style={styles.splashFooter}>
-        <Text variant="caption" colorRole="disabled" align="center">
-          from
-        </Text>
-        <Text
-          variant="caption"
-          align="center"
-          style={[styles.footerBrand, { color: theme.primary }]}
-        >
-          CHATFLOW
-        </Text>
-      </View>
+      {/* WhatsApp-Style Splash Footer */}
+      <BrandFooter style={styles.splashFooter} showSubtitle={true} />
     </View>
   );
 }
