@@ -23,6 +23,7 @@ import {
   StatusViewer,
   UserStoryGroup,
   CreateStatusDto,
+  CallRecord,
 } from '@chatflow/shared';
 import fs from 'fs';
 import path from 'path';
@@ -40,6 +41,8 @@ export class DatabaseService {
   private memoryStatuses: Map<string, StatusItem> = new Map();
   // In-memory status views: statusId -> StatusViewer[]
   private memoryStatusViews: Map<string, StatusViewer[]> = new Map();
+  // In-memory calls store: callId -> CallRecord
+  private memoryCalls: Map<string, CallRecord> = new Map();
 
   constructor() {
     if (
@@ -915,6 +918,211 @@ export class DatabaseService {
     }
 
     return deletedCount;
+  }
+
+  /**
+   * Persists a new Call Record (Dual-Mode: in-memory and Supabase).
+   * Strict adherence to RULE 0.1: No phone numbers stored.
+   */
+  async createCallRecord(call: CallRecord): Promise<CallRecord> {
+    this.memoryCalls.set(call.id, call);
+
+    if (this.supabase) {
+      try {
+        await this.supabase.from('calls').insert({
+          id: call.id,
+          caller_id: call.callerId,
+          caller_username: call.callerUsername,
+          caller_display_name: call.callerDisplayName,
+          caller_avatar_url: call.callerAvatarUrl || null,
+          receiver_id: call.receiverId,
+          receiver_username: call.receiverUsername,
+          receiver_display_name: call.receiverDisplayName,
+          receiver_avatar_url: call.receiverAvatarUrl || null,
+          type: call.type,
+          status: call.status,
+          started_at: call.startedAt,
+          answered_at: call.answeredAt || null,
+          ended_at: call.endedAt || null,
+          duration_seconds: call.durationSeconds,
+        });
+      } catch (err) {
+        logger.warn({ err, callId: call.id }, 'Supabase createCallRecord error, saved to memory');
+      }
+    }
+
+    return call;
+  }
+
+  /**
+   * Updates an existing call record (e.g. status connected/ended, duration).
+   */
+  async updateCallRecord(callId: string, updates: Partial<CallRecord>): Promise<CallRecord | null> {
+    const existing = this.memoryCalls.get(callId);
+    if (existing) {
+      const updated = { ...existing, ...updates };
+      this.memoryCalls.set(callId, updated);
+
+      if (this.supabase) {
+        try {
+          const dbUpdates: Record<string, unknown> = {};
+          if (updates.status) dbUpdates.status = updates.status;
+          if (updates.answeredAt) dbUpdates.answered_at = updates.answeredAt;
+          if (updates.endedAt) dbUpdates.ended_at = updates.endedAt;
+          if (typeof updates.durationSeconds === 'number') dbUpdates.duration_seconds = updates.durationSeconds;
+
+          await this.supabase.from('calls').update(dbUpdates).eq('id', callId);
+        } catch (err) {
+          logger.warn({ err, callId }, 'Supabase updateCallRecord error');
+        }
+      }
+
+      return updated;
+    }
+
+    if (this.supabase) {
+      try {
+        const { data, error } = await this.supabase
+          .from('calls')
+          .update(updates)
+          .eq('id', callId)
+          .select()
+          .maybeSingle();
+
+        if (!error && data) {
+          return this.mapDbCallToEntity(data);
+        }
+      } catch (err) {
+        logger.warn({ err, callId }, 'Supabase updateCallRecord error');
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Finds a call record by its ID.
+   */
+  async findCallById(callId: string): Promise<CallRecord | null> {
+    if (this.memoryCalls.has(callId)) {
+      return this.memoryCalls.get(callId)!;
+    }
+
+    if (this.supabase) {
+      try {
+        const { data, error } = await this.supabase
+          .from('calls')
+          .select('*')
+          .eq('id', callId)
+          .maybeSingle();
+
+        if (!error && data) {
+          return this.mapDbCallToEntity(data);
+        }
+      } catch (err) {
+        logger.warn({ err, callId }, 'Supabase findCallById error');
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Retrieves all call logs for a user (as caller or receiver), sorted descending by start time.
+   */
+  async getUserCalls(userId: string): Promise<CallRecord[]> {
+    if (this.supabase) {
+      try {
+        const { data, error } = await this.supabase
+          .from('calls')
+          .select('*')
+          .or(`caller_id.eq.${userId},receiver_id.eq.${userId}`)
+          .order('started_at', { ascending: false });
+
+        if (!error && data) {
+          return data.map((row) => this.mapDbCallToEntity(row));
+        }
+      } catch (err) {
+        logger.warn({ err, userId }, 'Supabase getUserCalls error, falling back to memory');
+      }
+    }
+
+    const calls = Array.from(this.memoryCalls.values())
+      .filter((c) => c.callerId === userId || c.receiverId === userId)
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
+    return calls;
+  }
+
+  /**
+   * Deletes a specific call record.
+   */
+  async deleteCallRecord(callId: string, userId: string): Promise<boolean> {
+    const call = this.memoryCalls.get(callId);
+    if (call && (call.callerId === userId || call.receiverId === userId)) {
+      this.memoryCalls.delete(callId);
+    }
+
+    if (this.supabase) {
+      try {
+        await this.supabase
+          .from('calls')
+          .delete()
+          .eq('id', callId)
+          .or(`caller_id.eq.${userId},receiver_id.eq.${userId}`);
+      } catch (err) {
+        logger.warn({ err, callId }, 'Supabase deleteCallRecord error');
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Clears all call records for a user.
+   */
+  async clearUserCalls(userId: string): Promise<boolean> {
+    for (const [id, call] of this.memoryCalls.entries()) {
+      if (call.callerId === userId || call.receiverId === userId) {
+        this.memoryCalls.delete(id);
+      }
+    }
+
+    if (this.supabase) {
+      try {
+        await this.supabase
+          .from('calls')
+          .delete()
+          .or(`caller_id.eq.${userId},receiver_id.eq.${userId}`);
+      } catch (err) {
+        logger.warn({ err, userId }, 'Supabase clearUserCalls error');
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Maps raw snake_case database row to canonical CallRecord entity.
+   */
+  private mapDbCallToEntity(row: Record<string, unknown>): CallRecord {
+    return {
+      id: String(row.id),
+      callerId: String(row.caller_id),
+      callerUsername: String(row.caller_username),
+      callerDisplayName: String(row.caller_display_name),
+      callerAvatarUrl: row.caller_avatar_url ? String(row.caller_avatar_url) : undefined,
+      receiverId: String(row.receiver_id),
+      receiverUsername: String(row.receiver_username),
+      receiverDisplayName: String(row.receiver_display_name),
+      receiverAvatarUrl: row.receiver_avatar_url ? String(row.receiver_avatar_url) : undefined,
+      type: row.type as CallRecord['type'],
+      status: row.status as CallRecord['status'],
+      startedAt: String(row.started_at),
+      answeredAt: row.answered_at ? String(row.answered_at) : undefined,
+      endedAt: row.ended_at ? String(row.ended_at) : undefined,
+      durationSeconds: Number(row.duration_seconds || 0),
+    };
   }
 
   /**

@@ -16,6 +16,8 @@ import {
   ClientToServerEvents,
   ServerToClientEvents,
   ChatMessage,
+  type CallParticipant,
+  type CallRecord,
 } from '@chatflow/shared';
 import { logger } from '../utils/logger';
 import { db } from '../services/db';
@@ -233,6 +235,149 @@ export function initSocketServer(
         userId: pubUserId,
         action: 'created',
       });
+    });
+
+    // =========================================================================
+    // 10. WebRTC 1-on-1 Audio & Video Calling Signaling (Phase 5)
+    // =========================================================================
+
+    // A. Initiate Call (Sender sends offer)
+    socket.on('call_initiate', async ({ callId, receiverId, type, sdp }) => {
+      try {
+        const callerUser = await db.findUserById(userId);
+        const receiverUser = await db.findUserById(receiverId);
+
+        const callerInfo: CallParticipant = {
+          id: userId,
+          username: callerUser?.username || username,
+          displayName: callerUser?.displayName || username,
+          avatarUrl: callerUser?.avatarUrl || undefined,
+        };
+
+        const newCall: CallRecord = {
+          id: callId,
+          callerId: userId,
+          callerUsername: callerInfo.username,
+          callerDisplayName: callerInfo.displayName,
+          callerAvatarUrl: callerInfo.avatarUrl,
+          receiverId,
+          receiverUsername: receiverUser?.username || 'user',
+          receiverDisplayName: receiverUser?.displayName || 'User',
+          receiverAvatarUrl: receiverUser?.avatarUrl || undefined,
+          type,
+          status: 'ringing',
+          startedAt: new Date().toISOString(),
+          durationSeconds: 0,
+        };
+
+        await db.createCallRecord(newCall);
+
+        // Acknowledge caller that ringing has started
+        socket.emit('call_ringing', { callId, receiverId });
+
+        // Relay incoming call offer to receiver's private room
+        io.to(`user_${receiverId}`).emit('incoming_call', {
+          callId,
+          caller: callerInfo,
+          type,
+          sdp,
+        });
+
+        logger.info(
+          { callId, callerId: userId, receiverId, type },
+          `Call initiated: ${callerInfo.username} calling ${receiverUser?.username || receiverId}`
+        );
+      } catch (err) {
+        logger.error({ err, callId }, 'Failed to initiate call');
+      }
+    });
+
+    // B. Answer Call (Receiver accepts offer with answer SDP)
+    socket.on('call_answer', async ({ callId, callerId, sdp }) => {
+      try {
+        const responderUser = await db.findUserById(userId);
+        const responder: CallParticipant = {
+          id: userId,
+          username: responderUser?.username || username,
+          displayName: responderUser?.displayName || username,
+          avatarUrl: responderUser?.avatarUrl || undefined,
+        };
+
+        await db.updateCallRecord(callId, {
+          status: 'connected',
+          answeredAt: new Date().toISOString(),
+        });
+
+        // Relay answer SDP to caller's private room
+        io.to(`user_${callerId}`).emit('call_accepted', {
+          callId,
+          responder,
+          sdp,
+        });
+
+        logger.info({ callId, callerId, responderId: userId }, `Call answered & connected`);
+      } catch (err) {
+        logger.error({ err, callId }, 'Failed to answer call');
+      }
+    });
+
+    // C. Reject Call (Receiver declines call)
+    socket.on('call_reject', async ({ callId, callerId, reason }) => {
+      try {
+        await db.updateCallRecord(callId, {
+          status: 'rejected',
+          endedAt: new Date().toISOString(),
+        });
+
+        io.to(`user_${callerId}`).emit('call_rejected', {
+          callId,
+          reason: reason || 'Call declined',
+        });
+
+        logger.info({ callId, callerId, rejectedBy: userId }, `Call rejected`);
+      } catch (err) {
+        logger.error({ err, callId }, 'Failed to reject call');
+      }
+    });
+
+    // D. ICE Candidate Exchange
+    socket.on('call_ice_candidate', ({ callId, targetUserId, candidate }) => {
+      io.to(`user_${targetUserId}`).emit('call_ice_candidate', {
+        callId,
+        senderUserId: userId,
+        candidate,
+      });
+    });
+
+    // E. Hangup / End Call
+    socket.on('call_end', async ({ callId, targetUserId, durationSeconds, reason }) => {
+      try {
+        const call = await db.findCallById(callId);
+        const finalDuration =
+          durationSeconds ??
+          (call?.answeredAt
+            ? Math.max(0, Math.round((Date.now() - new Date(call.answeredAt).getTime()) / 1000))
+            : 0);
+
+        const finalStatus = call?.status === 'ringing' ? 'missed' : 'ended';
+
+        await db.updateCallRecord(callId, {
+          status: finalStatus,
+          endedAt: new Date().toISOString(),
+          durationSeconds: finalDuration,
+        });
+
+        io.to(`user_${targetUserId}`).emit('call_ended', {
+          callId,
+          peerUserId: userId,
+          reason: reason || 'Call ended',
+          durationSeconds: finalDuration,
+        });
+
+        logger.info({ callId, userId, targetUserId, finalDuration }, `Call ended`);
+      } catch (err) {
+        logger.error({ err, callId }, 'Failed to terminate call');
+      }
     });
 
     socket.on('disconnect', () => {

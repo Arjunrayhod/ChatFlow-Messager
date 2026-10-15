@@ -9,6 +9,7 @@ import {
   StatusViewer,
   UserStoryGroup,
   CreateStatusDto,
+  CallRecord,
 } from '@chatflow/shared';
 
 import { Platform } from 'react-native';
@@ -545,5 +546,64 @@ export async function reportScreenshotAlert(
   }
 }
 
+/**
+ * Retrieves call history logs for the authenticated user.
+ */
+export async function getCalls(token: string): Promise<ApiResponse<CallRecord[]>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/calls`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch call history';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
 
+/**
+ * Deletes a single call record.
+ */
+export async function deleteCallRecord(
+  token: string,
+  callId: string
+): Promise<ApiResponse<{ success: boolean; deletedId: string }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/calls/${callId}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to delete call';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
 
+/**
+ * Clears all call history for the authenticated user.
+ */
+export async function clearCallHistory(
+  token: string
+): Promise<ApiResponse<{ success: boolean; cleared: boolean }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/calls`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to clear call history';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}

@@ -13,12 +13,21 @@ import {
   ServerToClientEvents,
   ChatMessage,
   MessageType,
+  CallType,
 } from '@chatflow/shared';
+import { Platform } from 'react-native';
 
-const SOCKET_SERVER_URL =
-  process.env.EXPO_PUBLIC_SOCKET_URL ||
-  process.env.EXPO_PUBLIC_API_URL ||
-  'http://localhost:4000';
+function getSocketUrl(): string {
+  if (process.env.EXPO_PUBLIC_SOCKET_URL) return process.env.EXPO_PUBLIC_SOCKET_URL;
+  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname || 'localhost';
+    return `http://${host}:4000`;
+  }
+  return 'http://localhost:4000';
+}
+
+const SOCKET_SERVER_URL = getSocketUrl();
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -134,3 +143,71 @@ export function emitTypingStop(chatId: string): void {
     socketInstance.emit('typing_stop', { chatId });
   }
 }
+
+/**
+ * Initiates a WebRTC 1-on-1 call with SDP offer.
+ */
+export function emitCallInitiate(
+  callId: string,
+  receiverId: string,
+  type: CallType,
+  sdp: unknown
+): void {
+  if (socketInstance) {
+    socketInstance.emit('call_initiate', { callId, receiverId, type, sdp });
+  }
+}
+
+/**
+ * Answers an incoming call with SDP answer.
+ */
+export function emitCallAnswer(
+  callId: string,
+  callerId: string,
+  sdp: unknown
+): void {
+  if (socketInstance) {
+    socketInstance.emit('call_answer', { callId, callerId, sdp });
+  }
+}
+
+/**
+ * Declines an incoming call.
+ */
+export function emitCallReject(
+  callId: string,
+  callerId: string,
+  reason?: string
+): void {
+  if (socketInstance) {
+    socketInstance.emit('call_reject', { callId, callerId, reason });
+  }
+}
+
+/**
+ * Relays an ICE candidate to peer.
+ */
+export function emitCallIceCandidate(
+  callId: string,
+  targetUserId: string,
+  candidate: unknown
+): void {
+  if (socketInstance) {
+    socketInstance.emit('call_ice_candidate', { callId, targetUserId, candidate });
+  }
+}
+
+/**
+ * Terminates an active call.
+ */
+export function emitCallEnd(
+  callId: string,
+  targetUserId: string,
+  durationSeconds?: number,
+  reason?: string
+): void {
+  if (socketInstance) {
+    socketInstance.emit('call_end', { callId, targetUserId, durationSeconds, reason });
+  }
+}
+

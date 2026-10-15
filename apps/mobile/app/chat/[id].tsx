@@ -37,6 +37,7 @@ import { MediaPreviewModal, SelectedMediaFile } from '../../src/components/molec
 import { MediaLightboxModal, MediaLightboxData } from '../../src/components/molecules/MediaLightboxModal';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useMessageStore } from '../../src/store/useMessageStore';
+import { useCallStore } from '../../src/store/useCallStore';
 import * as api from '../../src/services/api';
 import {
   connectSocket,
@@ -66,6 +67,8 @@ export default function ChatRoomScreen() {
     stopTyping,
     typingUsersByChatId,
   } = useMessageStore();
+
+  const startCall = useCallStore((state) => state.startCall);
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -359,14 +362,32 @@ export default function ChatRoomScreen() {
                 size="md"
                 color={theme.textInverse}
                 accessibilityLabel="Video Call"
-                onPress={() => alert('Video calling arriving in Phase 5')}
+                onPress={() => {
+                  void startCall(
+                    {
+                      id: recipientId,
+                      username: (params.username || 'user').replace(/^@/, ''),
+                      displayName: recipientName,
+                    },
+                    'video'
+                  );
+                }}
               />
               <IconButton
                 name="call-outline"
                 size="md"
                 color={theme.textInverse}
                 accessibilityLabel="Voice Call"
-                onPress={() => alert('Voice calling arriving in Phase 5')}
+                onPress={() => {
+                  void startCall(
+                    {
+                      id: recipientId,
+                      username: (params.username || 'user').replace(/^@/, ''),
+                      displayName: recipientName,
+                    },
+                    'audio'
+                  );
+                }}
               />
               <IconButton
                 name="camera-outline"

@@ -14,6 +14,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useColorScheme, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { tokens } from '../src/theme/tokens';
+import { useAuthStore } from '../src/store/useAuthStore';
+import { useCallStore } from '../src/store/useCallStore';
+import { IncomingCallModal } from '../src/components/molecules/IncomingCallModal';
+import { ActiveCallModal } from '../src/components/molecules/ActiveCallModal';
 
 /**
  * Root application navigation stack layout.
@@ -22,6 +26,16 @@ import { tokens } from '../src/theme/tokens';
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
+
+  const token = useAuthStore((state) => state.token);
+  const initCallListeners = useCallStore((state) => state.initCallListeners);
+
+  // Initialize WebRTC calling socket listeners
+  useEffect(() => {
+    if (token) {
+      initCallListeners(token);
+    }
+  }, [token, initCallListeners]);
 
   // [HINGLISH]: Web par zoom, pinch aur double-tap zoom rokne ke liye event listeners
   useEffect(() => {
@@ -162,6 +176,8 @@ export default function RootLayout() {
           }}
         />
       </Stack>
+      <IncomingCallModal />
+      <ActiveCallModal />
     </SafeAreaProvider>
   );
 }

@@ -16,6 +16,7 @@ import { contactsRouter } from './routes/contacts';
 import { messagesRouter } from './routes/messages';
 import { uploadRouter } from './routes/upload';
 import { statusRouter } from './routes/status';
+import { callsRouter } from './routes/calls';
 import { notFoundHandler } from './middlewares/not-found';
 import { errorHandler } from './middlewares/error-handler';
 
@@ -128,6 +129,7 @@ export function createApp(): Application {
   app.use('/api/messages', messagesRouter);
   app.use('/api/upload', uploadRouter);
   app.use('/api/status', statusRouter);
+  app.use('/api/calls', callsRouter);
 
   // [HINGLISH]: Unmatched routes ke liye 404 handler aur common error handler
   // Fallthrough 404 & error handling

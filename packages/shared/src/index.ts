@@ -14,4 +14,4 @@ export * from './types/user';
 export * from './types/chat';
 export * from './types/socket';
 export * from './types/status';
-
+export * from './types/call';
