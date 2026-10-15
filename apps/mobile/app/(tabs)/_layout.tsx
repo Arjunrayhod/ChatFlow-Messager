@@ -16,8 +16,8 @@ import { useColorScheme, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../src/theme/tokens';
-import { Text } from '../../src/components/atoms/Text';
 import { SettingsModal } from '../../src/components/molecules/SettingsModal';
+import { QRCodeModal } from '../../src/components/molecules/QRCodeModal';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -25,6 +25,7 @@ export default function TabsLayout() {
   const router = useRouter();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isQROpen, setIsQROpen] = useState(false);
 
   return (
     <>
@@ -40,6 +41,20 @@ export default function TabsLayout() {
           },
           headerRight: () => (
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: tokens.spacing.xs }}>
+              <Pressable
+                onPress={() => setIsQROpen(true)}
+                style={{
+                  paddingHorizontal: tokens.spacing.xs,
+                  minWidth: tokens.spacing.huge,
+                  minHeight: tokens.spacing.huge,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="QR Code and Scanner"
+              >
+                <Ionicons name="qr-code-outline" size={21} color={theme.textInverse} />
+              </Pressable>
               <Pressable
                 onPress={() => setIsSettingsOpen(true)}
                 style={{
@@ -109,6 +124,11 @@ export default function TabsLayout() {
     <SettingsModal
       visible={isSettingsOpen}
       onClose={() => setIsSettingsOpen(false)}
+    />
+
+    <QRCodeModal
+      visible={isQROpen}
+      onClose={() => setIsQROpen(false)}
     />
   </>
 );

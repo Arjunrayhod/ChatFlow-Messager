@@ -29,6 +29,7 @@ import { Avatar } from '../atoms/Avatar';
 import { Button } from '../atoms/Button';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useHealthStore } from '../../store/useHealthStore';
+import { QRCodeModal } from './QRCodeModal';
 
 export interface SettingsModalProps {
   visible: boolean;
@@ -49,6 +50,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isQROpen, setIsQROpen] = useState(false);
 
   const handlePerformLogout = async () => {
     setIsLoggingOut(true);
@@ -127,10 +129,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {user?.bio || 'Hey there! I am using ChatFlow.'}
               </Text>
             </View>
+            <Pressable
+              onPress={() => setIsQROpen(true)}
+              style={({ pressed }) => [
+                styles.qrIconButton,
+                {
+                  backgroundColor: theme.surfaceEmphasized,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="View and scan QR code"
+            >
+              <Ionicons name="qr-code-outline" size={24} color={theme.primary} />
+            </Pressable>
           </View>
 
           {/* Section: WhatsApp Options List */}
           <View style={styles.sectionContainer}>
+            {/* QR Code & Add Friends Item */}
+            <Pressable
+              onPress={() => setIsQROpen(true)}
+              style={({ pressed }) => [
+                styles.settingItem,
+                {
+                  backgroundColor: pressed ? theme.surfaceEmphasized : theme.surface,
+                  borderBottomColor: theme.divider,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="QR Code & Add Friends"
+            >
+              <View
+                style={[
+                  styles.iconCircle,
+                  { backgroundColor: theme.surfaceEmphasized },
+                ]}
+              >
+                <Ionicons name="qr-code-outline" size={22} color={theme.primary} />
+              </View>
+              <View style={styles.itemTextCol}>
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                  QR Code & Add Friends
+                </Text>
+                <Text variant="caption" colorRole="secondary">
+                  Share your code or scan friends to chat
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textDisabled} />
+            </Pressable>
             {/* Account & Privacy Item */}
             <View
               style={[
@@ -362,6 +409,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </View>
           </View>
         )}
+
+        <QRCodeModal
+          visible={isQROpen}
+          onClose={() => setIsQROpen(false)}
+        />
       </View>
     </Modal>
   );
@@ -402,6 +454,13 @@ const styles = StyleSheet.create({
   profileTextCol: {
     flex: 1,
     gap: 2,
+  },
+  qrIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   usernameText: {
     fontWeight: '700',

@@ -33,6 +33,7 @@ import { Avatar } from '../../src/components/atoms/Avatar';
 import { TextInputField } from '../../src/components/atoms/TextInputField';
 import { ChatListItem } from '../../src/components/molecules/ChatListItem';
 import { EmptyState } from '../../src/components/molecules/EmptyState';
+import { QRCodeModal } from '../../src/components/molecules/QRCodeModal';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useChatStore } from '../../src/store/useChatStore';
 import { Contact, UserProfile } from '@chatflow/shared';
@@ -60,6 +61,15 @@ export default function ChatsScreen() {
   const [inboxFilter, setInboxFilter] = useState('');
   const [modalSearchText, setModalSearchText] = useState('');
   const [addingUsername, setAddingUsername] = useState<string | null>(null);
+
+  // QR Modal States
+  const [isQROpen, setIsQROpen] = useState(false);
+  const [qrModalInitialTab, setQrModalInitialTab] = useState<'my_code' | 'scan_code'>('scan_code');
+
+  const openQRModal = (tab: 'my_code' | 'scan_code' = 'scan_code') => {
+    setQrModalInitialTab(tab);
+    setIsQROpen(true);
+  };
 
   // Load contacts when screen mounts or user token changes
   useEffect(() => {
@@ -151,7 +161,7 @@ export default function ChatsScreen() {
           onChangeText={setInboxFilter}
           style={styles.searchInput}
         />
-        {inboxFilter.length > 0 && (
+        {inboxFilter.length > 0 ? (
           <Pressable
             onPress={() => setInboxFilter('')}
             style={styles.clearButton}
@@ -162,6 +172,15 @@ export default function ChatsScreen() {
               size={tokens.iconSizes.sm}
               color={theme.textSecondary}
             />
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => openQRModal('scan_code')}
+            style={styles.qrScanButton}
+            accessibilityRole="button"
+            accessibilityLabel="Scan QR code"
+          >
+            <Ionicons name="qr-code-outline" size={20} color={theme.primary} />
           </Pressable>
         )}
       </View>
@@ -259,6 +278,67 @@ export default function ChatsScreen() {
             <Text variant="caption" colorRole="inverse" style={{ opacity: 0.9 }}>
               Discover users strictly by their @username (Zero Phone Numbers)
             </Text>
+          </View>
+
+          {/* Quick Action: QR Code & Scanner */}
+          <View style={styles.modalQuickActions}>
+            <Pressable
+              onPress={() => {
+                closeNewChatModal();
+                openQRModal('scan_code');
+              }}
+              style={({ pressed }) => [
+                styles.modalQuickActionItem,
+                {
+                  backgroundColor: pressed ? theme.surfaceEmphasized : theme.surface,
+                  borderColor: theme.divider,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Scan QR Code"
+            >
+              <View style={[styles.modalQuickIconCircle, { backgroundColor: theme.primary }]}>
+                <Ionicons name="scan-outline" size={20} color={theme.textInverse} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                  Scan QR Code
+                </Text>
+                <Text variant="caption" colorRole="secondary">
+                  Scan a friend's code to start chatting
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textDisabled} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                closeNewChatModal();
+                openQRModal('my_code');
+              }}
+              style={({ pressed }) => [
+                styles.modalQuickActionItem,
+                {
+                  backgroundColor: pressed ? theme.surfaceEmphasized : theme.surface,
+                  borderColor: theme.divider,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="My QR Code"
+            >
+              <View style={[styles.modalQuickIconCircle, { backgroundColor: theme.surfaceEmphasized }]}>
+                <Ionicons name="qr-code-outline" size={20} color={theme.primary} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                  My QR Code
+                </Text>
+                <Text variant="caption" colorRole="secondary">
+                  Display your personal code for friends
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textDisabled} />
+            </Pressable>
           </View>
 
           {/* Modal Search Input */}
@@ -366,6 +446,13 @@ export default function ChatsScreen() {
           )}
         </View>
       </Modal>
+
+      {/* QR Code and Scanner Modal */}
+      <QRCodeModal
+        visible={isQROpen}
+        onClose={() => setIsQROpen(false)}
+        initialTab={qrModalInitialTab}
+      />
     </View>
   );
 }
@@ -388,6 +475,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   clearButton: {
+    padding: tokens.spacing.xs,
+    minWidth: tokens.spacing.huge,
+    minHeight: tokens.spacing.huge,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrScanButton: {
     padding: tokens.spacing.xs,
     minWidth: tokens.spacing.huge,
     minHeight: tokens.spacing.huge,
@@ -462,5 +556,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: tokens.spacing.xl,
     gap: tokens.spacing.xs,
+  },
+  modalQuickActions: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingTop: tokens.spacing.md,
+    gap: tokens.spacing.sm,
+  },
+  modalQuickActionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: tokens.spacing.sm,
+    paddingHorizontal: tokens.spacing.md,
+    borderRadius: tokens.radii.lg,
+    borderWidth: 1,
+    minHeight: tokens.spacing.huge,
+  },
+  modalQuickIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
