@@ -173,7 +173,7 @@ export default function SignInScreen() {
         <View style={styles.actionsContainer}>
           {/* Main WhatsApp "Agree and continue" Pill Button */}
           <Pressable
-            onPress={() => void handleGoogleSignIn('user@gmail.com', 'google_user_01')}
+            onPress={() => void handleGoogleSignIn()}
             disabled={isLoading}
             style={({ pressed }) => [
               styles.agreeButton,
@@ -197,38 +197,10 @@ export default function SignInScreen() {
                   colorRole="inverse"
                   style={styles.agreeButtonText}
                 >
-                  Agree and continue
+                  Agree and continue with Google
                 </Text>
               </View>
             )}
-          </Pressable>
-
-          {/* WhatsApp Multi-Account Switcher (Demo / Pair Account) */}
-          <Pressable
-            onPress={() => void handleGoogleSignIn('alex.rivers@gmail.com', 'google_user_alex')}
-            disabled={isLoading}
-            style={({ pressed }) => [
-              styles.accountSwitchRow,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.divider,
-                borderRadius: tokens.radii.md,
-                opacity: pressed || isLoading ? 0.75 : 1,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Switch to Alternate Demo Account"
-          >
-            <Avatar name="Alex Rivers" size="sm" />
-            <View style={styles.accountSwitchTextCol}>
-              <Text variant="caption" colorRole="secondary">
-                Switch to Demo Account 2
-              </Text>
-              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                Alex Rivers (@alex_rivers)
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
           </Pressable>
         </View>
 

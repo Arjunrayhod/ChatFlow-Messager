@@ -87,30 +87,52 @@ export async function requireAuth(
     return;
   }
 
-  // Handle development tokens for frictionless local testing (e.g. dev_token_uid:email)
-  if (token.startsWith('dev_token_') || !firebaseInitialized) {
-    const parts = token.replace('dev_token_', '').split(':');
-    const devUid = parts[0] || 'dev_user_123';
-    const devEmail = parts[1] || 'dev.user@gmail.com';
+  // 1. If Firebase Admin SDK is initialized, verify via Admin SDK
+  if (firebaseInitialized) {
+    try {
+      const decodedToken = await getAuth().verifyIdToken(token);
+      req.uid = decodedToken.uid;
+      req.userEmail = decodedToken.email || '';
+      next();
+      return;
+    } catch (err) {
+      logger.warn({ err }, 'Firebase Admin SDK verification failed, checking fallback verification');
+    }
+  }
 
-    req.uid = devUid;
-    req.userEmail = devEmail;
+  // 2. Verify real Google ID Token via Google's official public OAuth2 tokeninfo endpoint
+  if (token.length > 50 && !token.startsWith('dev_token_')) {
+    try {
+      const googleRes = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`
+      );
+      if (googleRes.ok) {
+        const payload = (await googleRes.json()) as { sub?: string; email?: string };
+        if (payload.sub && payload.email) {
+          req.uid = payload.sub;
+          req.userEmail = payload.email;
+          next();
+          return;
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Google tokeninfo verification failed');
+    }
+  }
+
+  // 3. Development token fallback for local offline testing
+  if (token.startsWith('dev_token_')) {
+    const parts = token.replace('dev_token_', '').split(':');
+    req.uid = parts[0] || 'dev_user_123';
+    req.userEmail = parts[1] || 'dev.user@gmail.com';
     next();
     return;
   }
 
-  try {
-    const decodedToken = await getAuth().verifyIdToken(token);
-    req.uid = decodedToken.uid;
-    req.userEmail = decodedToken.email || '';
-    next();
-  } catch (err) {
-    logger.warn({ err }, 'Failed to verify Firebase ID token');
-    res.status(401).json(
-      createErrorResponse(
-        'AUTH_REQUIRED',
-        'Invalid or expired authentication token'
-      )
-    );
-  }
+  res.status(401).json(
+    createErrorResponse(
+      'AUTH_REQUIRED',
+      'Invalid or expired Google authentication token'
+    )
+  );
 }

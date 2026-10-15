@@ -16,6 +16,8 @@
     "@chatflow/shared": "workspace:*",
     "@expo/metro-runtime": "~3.2.3",
     "@expo/vector-icons": "^15.1.1",
+    "@firebase/app": "^0.16.3",
+    "@firebase/auth": "^1.13.7",
     "engine.io-client": "^6.6.7",
     "expo": "~51.0.0",
     "expo-constants": "~16.0.1",

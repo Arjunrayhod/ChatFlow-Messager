@@ -12,6 +12,11 @@ import {
   getCurrentUserProfile,
 } from '../services/api';
 import { disconnectSocket } from '../services/socket';
+import {
+  signInWithGoogleReal,
+  signOutFromFirebase,
+  isFirebaseConfigured,
+} from '../services/firebase';
 
 export interface AuthState {
   user: User | null;
@@ -38,30 +43,50 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   /**
    * Performs Google authentication and synchronizes user session.
+   * Prompts real Google Account picker on Web / Mobile.
    */
-  signInWithGoogle: async (email = 'user@gmail.com', uid = `g_uid_${Date.now()}`) => {
+  signInWithGoogle: async (fallbackEmail?: string, fallbackUid?: string) => {
     set({ isLoading: true, error: null });
 
-    // Generate dev session token for local/dev flow or real Firebase ID token
-    const token = `dev_token_${uid}:${email}`;
+    try {
+      let token: string;
 
-    const syncResult = await syncUserSession(token);
+      if (isFirebaseConfigured() && !fallbackUid) {
+        // [HINGLISH]: Real Google Sign-In popup with personal @gmail.com account
+        const { idToken } = await signInWithGoogleReal();
+        token = idToken;
+      } else if (fallbackEmail && fallbackUid) {
+        token = `dev_token_${fallbackUid}:${fallbackEmail}`;
+      } else {
+        throw new Error(
+          'Firebase API Key required in .env for live Google Sign-In. Set EXPO_PUBLIC_FIREBASE_API_KEY from console.firebase.google.com.'
+        );
+      }
 
-    if (syncResult.ok) {
-      const { user, isOnboarded } = syncResult.data;
+      const syncResult = await syncUserSession(token);
+
+      if (syncResult.ok) {
+        const { user, isOnboarded } = syncResult.data;
+        set({
+          token,
+          user,
+          isAuthenticated: true,
+          isOnboarded,
+          isLoading: false,
+          error: null,
+        });
+        return true;
+      } else {
+        set({
+          isLoading: false,
+          error: syncResult.error.message,
+        });
+        return false;
+      }
+    } catch (err: any) {
       set({
-        token,
-        user,
-        isAuthenticated: true,
-        isOnboarded,
         isLoading: false,
-        error: null,
-      });
-      return true;
-    } else {
-      set({
-        isLoading: false,
-        error: syncResult.error.message,
+        error: err?.message || 'Google Sign-In failed',
       });
       return false;
     }
@@ -130,6 +155,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    */
   signOut: async () => {
     disconnectSocket();
+    await signOutFromFirebase();
     set({
       user: null,
       token: null,
