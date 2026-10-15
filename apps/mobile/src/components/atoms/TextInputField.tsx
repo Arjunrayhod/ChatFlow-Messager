@@ -10,6 +10,8 @@ import {
   StyleSheet,
   useColorScheme,
   TextInputProps,
+  StyleProp,
+  ViewStyle,
 } from 'react-native';
 import { tokens } from '../../theme/tokens';
 import { Text } from './Text';
@@ -20,6 +22,7 @@ export interface TextInputFieldProps extends TextInputProps {
   errorMessage?: string | null;
   isValid?: boolean;
   helperText?: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }
 
 /**
@@ -37,6 +40,7 @@ export const TextInputField: React.FC<TextInputFieldProps> = ({
   autoFocus,
   maxLength,
   style,
+  containerStyle,
   ...rest
 }) => {
   const [isFocused, setIsFocused] = useState(false);
@@ -51,7 +55,7 @@ export const TextInputField: React.FC<TextInputFieldProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {label && (
         <Text variant="caption" colorRole="secondary" style={styles.label}>
           {label}

@@ -1,0 +1,24 @@
+Disappearing Messages: चैट के मैसेजेस 24 घंटे, 7 दिन या 90 दिनों के बाद अपने आप डिलीट हो जाते हैं।  Edit Messages: भेजे गए मैसेज को 15 मिनट के अंदर एडिट (सुधार) कर सकते हैं। Undo Delete for Me: गलती से 'Delete for me' हुए मैसेज को तुरंत अनडू (Undo) करके वापस ला सकते हैं。• HD Photo/Video Sharing: बिना क्वालिटी खराब किए ओरिजिनल HD रेजोल्यूशन में मीडिया भेज सकते हैं।
+• Pin Messages: किसी भी जरूरी मैसेज को चैट में सबसे ऊपर पिन कर सकते हैं। Screenshot & Screen-Recording Block: सेंसिटिव या प्राइवेट चैट्स में सामने वाला व्यक्ति स्क्रीनशॉट न ले सके और न ही स्क्रीन रिकॉर्डिंग कर सके। Scheduled Messages: भविष्य के किसी समय या तारीख के लिए मैसेज शेड्यूल करना (जैसे रात 12 बजे किसी को ऑटोमैटिक बर्थडे विश भेजना)। In-Chat Split Bill / Expense Tracker: दोस्तों के ग्रुप चैट में ही पैसों का हिसाब रखने और बिल स्प्लिट करने का इन-बिल्ट टूल। Rich Text Notes & Tasks: चैट के अंदर ही टू-डू लिस्ट (To-Do List) बनाना और किसी टास्क को किसी ग्रुप मेंबर को असाइन करना।         
+
+qr code to ad new friend 
+
+"Hey, I want to add a WhatsApp-like 'Status/Stories' feature to my messaging app. Please generate the code and architecture for both Frontend and Backend based on the following requirements:
+1. Core Functionality:
+• Users can upload Photos, Videos, or Text as a Status.
+• Statuses must automatically expire and delete after 24 hours.
+• Users should be able to see who has viewed their status (View Count & Viewers List).
+• Users can manually delete their own status before 24 hours.
+2. Frontend (UI/UX):
+• A horizontal scrollable list of user avatars at the top of the chat screen (like WhatsApp/Instagram).
+• Unseen statuses should have a colored ring around the avatar; seen statuses should have a gray ring.
+• A full-screen status viewer with a progress bar at the top indicating the duration of the story.
+• Tap right to skip, tap left to go back, and hold to pause the status.
+3. Backend & Database Structure:
+• Design a database schema (Status table with fields: id, user_id, media_url, media_type, caption, created_at, expires_at).
+• Create a cron job or background worker script that runs every hour to automatically delete/archive expired statuses.
+• API endpoints needed: POST /status/upload, GET /status/feed (to fetch friends' statuses), GET /status/viewers, and DELETE /status/:id.
+Please provide the complete implementation plan and clean, modular code. Let me know if you need any specific tech stack preferences."
+
+
+Screenshot & Recording Alerts: अगर कोई आपकी चैट, फोटो या स्टोरी का स्क्रीनशॉट लेता है या स्क्रीन रिकॉर्डिंग करता है, तो स्नैपचैट तुरंत आपको नोटिफिकेशन भेजकर अलर्ट करता है।

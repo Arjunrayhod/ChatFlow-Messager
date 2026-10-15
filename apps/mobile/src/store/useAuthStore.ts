@@ -11,6 +11,7 @@ import {
   onboardUserProfile,
   getCurrentUserProfile,
 } from '../services/api';
+import { disconnectSocket } from '../services/socket';
 
 export interface AuthState {
   user: User | null;
@@ -128,6 +129,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * Clears active authentication session and profile data.
    */
   signOut: async () => {
+    disconnectSocket();
     set({
       user: null,
       token: null,

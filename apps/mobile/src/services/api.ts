@@ -65,9 +65,13 @@ export async function checkServerHealth(): Promise<ApiResponse<HealthCheckData>>
 
 import {
   User,
+  UserProfile,
+  Contact,
+  ChatMessage,
   CreateUserDto,
   SyncUserResponse,
   CheckUsernameResponse,
+  RemoveContactResponse,
 } from '@chatflow/shared';
 
 /**
@@ -158,3 +162,124 @@ export async function getCurrentUserProfile(
     return createErrorResponse('INTERNAL_ERROR', message);
   }
 }
+
+/**
+ * Searches users by @username or display name.
+ */
+export async function searchUsers(
+  token: string,
+  query: string
+): Promise<ApiResponse<UserProfile[]>> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/users/search?q=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Retrieves the saved contact list for the authenticated user.
+ */
+export async function getContacts(
+  token: string
+): Promise<ApiResponse<Contact[]>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/contacts`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      cache: 'no-store',
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Adds a new contact by their unique @username.
+ */
+export async function addContact(
+  token: string,
+  username: string,
+  nickname?: string
+): Promise<ApiResponse<Contact>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/contacts`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ username, nickname }),
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Removes a contact relationship.
+ */
+export async function removeContact(
+  token: string,
+  contactUserId: string
+): Promise<ApiResponse<RemoveContactResponse>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/contacts/${contactUserId}`, {
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Fetches message history for a conversation.
+ */
+export async function getMessageHistory(
+  token: string,
+  chatId: string
+): Promise<ApiResponse<ChatMessage[]>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/messages/${chatId}`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      cache: 'no-store',
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+

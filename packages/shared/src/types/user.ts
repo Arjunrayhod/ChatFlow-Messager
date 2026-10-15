@@ -70,3 +70,16 @@ export interface CheckUsernameResponse {
   reason?: string;
 }
 
+/** Payload for adding a contact by their unique @username. */
+export interface AddContactDto {
+  username: string;
+  nickname?: string;
+}
+
+/** Result of contact removal. */
+export interface RemoveContactResponse {
+  removed: boolean;
+  contactUserId: string;
+}
+
+

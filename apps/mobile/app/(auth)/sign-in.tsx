@@ -2,6 +2,13 @@
  * @file Google Sign-In Screen.
  * Strict compliance with RULE 0.1: No phone number prompt, input, or mention.
  * Strict compliance with RULE 0.7: All styles derived strictly from tokens.ts.
+ * 
+ * [HINGLISH GUIDE]:
+ * Yeh Google Authentication Screen hai:
+ * - RULE: Yahan phone number ya OTP ka koi field nahi hai.
+ * - Login ke baad check hota hai:
+ *   - Agar user new hai to `/(auth)/onboarding` par bhejta hai taaki unique @username choose kare.
+ *   - Agar pehle se onboarded hai to direct Home (`/`) ya Inbox par bhejta hai.
  */
 
 import React from 'react';
@@ -28,7 +35,7 @@ export default function SignInScreen() {
       if (!isOnboarded) {
         router.replace('/(auth)/onboarding');
       } else {
-        router.replace('/');
+        router.replace('/(tabs)/chats');
       }
     }
   };

@@ -1,5 +1,10 @@
 /**
  * @file Health check route providing system liveness and uptime status.
+ * 
+ * [HINGLISH GUIDE]:
+ * Yeh public health probe endpoint hai (/health).
+ * Frontend ya Docker/Kubernetes check karta hai ki backend zinda hai ya nahi.
+ * Iske liye kisi login ya token ki zaroorat nahi hoti.
  */
 
 import { Router, Request, Response } from 'express';
@@ -9,6 +14,7 @@ export const healthRouter: Router = Router();
 
 /**
  * GET /health - Unauthenticated health probe.
+ * [HINGLISH]: Server uptime aur status return karta hai.
  */
 healthRouter.get('/', (_req: Request, res: Response) => {
   res.status(200).json(

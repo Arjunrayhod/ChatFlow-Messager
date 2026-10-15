@@ -2,6 +2,15 @@
  * @file User management and onboarding API routes.
  * Enforces RULE 0.1: No phone numbers collected, stored, or processed.
  * Enforces RULE 0.5: Standardized { ok, data/error } response envelope.
+ * 
+ * [HINGLISH GUIDE]:
+ * Is file me user se jude sabhi routes hain:
+ * 1. GET /search -> @username ya display name se users search karta hai (contacts add karne ke liye)
+ * 2. GET /check-username -> Live typing par check karta hai ki @username already taken hai ya available
+ * 3. POST /sync -> Login ke baad check karta hai ki user pehle se onboarded hai ya new user hai
+ * 4. POST /onboard -> New user ka profile create karta hai (@username, displayName, bio)
+ * 5. GET /me -> Logged-in user ki profile fetch karta hai
+ * 6. PATCH /me -> Profile update karne ke liye (bio, avatar, displayName)
  */
 
 import { Router, Request, Response } from 'express';
@@ -45,6 +54,29 @@ const updateProfileSchema = z.object({
   displayName: z.string().trim().min(1).max(50).optional(),
   bio: z.string().trim().max(140).optional(),
   avatarUrl: z.string().trim().optional(),
+});
+
+const searchQuerySchema = z.object({
+  q: z.string().trim().min(1, 'Search query is required').max(50),
+});
+
+/**
+ * GET /api/users/search?q=...
+ * Search users by unique @username or display name.
+ * Enforces RULE 0.1: No phone numbers involved or exposed.
+ */
+usersRouter.get('/search', async (req: Request, res: Response): Promise<void> => {
+  const parseResult = searchQuerySchema.safeParse(req.query);
+  if (!parseResult.success) {
+    res.status(200).json(createSuccessResponse([]));
+    return;
+  }
+
+  const { q } = parseResult.data;
+  const currentUserId = req.uid || undefined;
+  const results = await db.searchUsers(q, currentUserId);
+
+  res.status(200).json(createSuccessResponse(results));
 });
 
 /**

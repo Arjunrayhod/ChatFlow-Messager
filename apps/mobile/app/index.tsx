@@ -1,6 +1,14 @@
 /**
  * @file Home / Gateway Screen displaying backend connectivity status and Auth State.
  * Strict compliance with RULE 0.1 (No phone numbers) and RULE 0.7 (Design system tokens).
+ * 
+ * [HINGLISH GUIDE]:
+ * Yeh ChatFlow ka HOME / GATEWAY Screen hai:
+ * 1. Backend Connectivity: Page load hote hi `/health` ko ping karta hai aur status (UP/DOWN, latency) dikhata hai.
+ * 2. User State handling:
+ *    - Agar user logged in + onboarded hai -> Profile Card dikhta hai
+ *    - Agar user logged in hai par @username choose nahi kiya -> Onboarding screen ka prompt aata hai
+ *    - Agar user logged out hai -> "Sign In with Google" ka button aata hai
  */
 
 import React, { useEffect } from 'react';
@@ -171,6 +179,14 @@ export default function GatewayScreen() {
             )}
 
             <View style={styles.authenticatedActions}>
+              <Button
+                label="Open Chat Inbox"
+                onPress={() => router.push('/(tabs)/chats')}
+                variant="primary"
+                size="md"
+                fullWidth={true}
+              />
+              <View style={{ height: tokens.spacing.xs }} />
               <Button
                 label="Sign Out"
                 onPress={() => void signOut()}

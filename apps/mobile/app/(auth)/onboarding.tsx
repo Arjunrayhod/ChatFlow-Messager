@@ -2,6 +2,14 @@
  * @file Profile Onboarding & Username Setup Screen.
  * Enforces RULE 0.1: Identity strictly via @username and Google email.
  * Enforces RULE 0.7: All components import from theme/tokens.ts.
+ * 
+ * [HINGLISH GUIDE]:
+ * Yeh Onboarding Screen hai jaha new user apna account setup karta hai:
+ * 1. Display Name: Jo naam chats me doosro ko dikhega.
+ * 2. Unique @username: Har user ka unique handle (jaise @alex, @rahul).
+ *    - Isme 400ms ka debounce laga hai: type karte hi server se check hota hai ki username available hai ya nahi.
+ * 3. Bio / About: Optional status message.
+ * Setup complete hote hi user backend database me register ho jata hai.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -85,7 +93,7 @@ export default function OnboardingScreen() {
     });
 
     if (success) {
-      router.replace('/');
+      router.replace('/(tabs)/chats');
     }
   };
 

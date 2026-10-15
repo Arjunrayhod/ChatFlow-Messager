@@ -1,6 +1,12 @@
 /**
  * @file Firebase Authentication verification middleware.
  * Enforces RULE 0.6: Firebase ID token required on authenticated routes.
+ * 
+ * [HINGLISH GUIDE]:
+ * Yeh authentication middleware hai.
+ * Protected routes (jaise /api/users/me ya /api/contacts) par user verify karta hai.
+ * Dev mode me ye bina real Firebase key ke bhi 'dev_token_' accept kar leta hai
+ * taaki testing aasan rahe.
  */
 
 import { Request, Response, NextFunction } from 'express';
@@ -21,6 +27,8 @@ declare global {
 
 let firebaseInitialized = false;
 
+// [HINGLISH]: Agar .env me real Firebase keys hain to Admin SDK initialize karo,
+// warna local development mode me run karo (no crash).
 // Initialize Firebase Admin if valid credentials are provided
 if (
   env.FIREBASE_PROJECT_ID &&
@@ -50,6 +58,7 @@ if (
 
 /**
  * Middleware that validates the Firebase Bearer token and binds req.uid.
+ * [HINGLISH]: Header se 'Bearer <token>' nikalta hai aur user verify karta hai.
  */
 export async function requireAuth(
   req: Request,

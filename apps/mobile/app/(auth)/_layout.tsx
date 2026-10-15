@@ -1,5 +1,11 @@
 /**
  * @file Authentication layout handling sign-in and onboarding screen routing.
+ * 
+ * [HINGLISH GUIDE]:
+ * Yeh (auth) route group ka layout hai.
+ * Yahan 2 main screens hain:
+ * 1. sign-in: Google Sign-In screen (no header)
+ * 2. onboarding: Profile Setup screen (Back button enabled)
  */
 
 import React from 'react';
