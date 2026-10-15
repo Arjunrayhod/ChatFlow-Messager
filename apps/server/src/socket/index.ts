@@ -115,6 +115,24 @@ export function initSocketServer(
           clientTempId,
         });
 
+        // Ensure both participants have each other in their inbox contacts
+        const participants = chatId.split('_');
+        const recipientId = participants.find((id) => id !== userId);
+        if (recipientId) {
+          const recipientUser = await db.findUserById(recipientId);
+          const senderUser = await db.findUserById(userId);
+          if (recipientUser && senderUser) {
+            const hasSender = await db.hasContact(userId, recipientId);
+            if (!hasSender) {
+              await db.addContact(userId, recipientUser);
+            }
+            const hasRecipient = await db.hasContact(recipientId, userId);
+            if (!hasRecipient) {
+              await db.addContact(recipientId, senderUser);
+            }
+          }
+        }
+
         logger.info(
           { messageId: message.id, chatId, senderId: userId },
           `Message delivered to room ${chatId}`

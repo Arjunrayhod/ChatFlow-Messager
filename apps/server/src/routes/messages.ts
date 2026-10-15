@@ -82,6 +82,24 @@ messagesRouter.post(
       replyToId
     );
 
+    // Ensure reciprocal contacts in inbox
+    const participants = chatId.split('_');
+    const recipientId = participants.find((id) => id !== senderId);
+    if (recipientId) {
+      const recipientUser = await db.findUserById(recipientId);
+      const senderUser = await db.findUserById(senderId);
+      if (recipientUser && senderUser) {
+        const hasSender = await db.hasContact(senderId, recipientId);
+        if (!hasSender) {
+          await db.addContact(senderId, recipientUser);
+        }
+        const hasRecipient = await db.hasContact(recipientId, senderId);
+        if (!hasRecipient) {
+          await db.addContact(recipientId, senderUser);
+        }
+      }
+    }
+
     res.status(201).json(createSuccessResponse(message));
   }
 );

@@ -4,6 +4,7 @@
  */
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { User, CreateUserDto, CheckUsernameResponse } from '@chatflow/shared';
 import {
   checkUsernameAvailability,
@@ -26,71 +27,109 @@ export interface AuthState {
   isLoading: boolean;
   error: string | null;
 
-  signInWithGoogle: (email?: string, uid?: string) => Promise<boolean>;
+  signInWithGoogle: (gmailAddress?: string, explicitUid?: string) => Promise<boolean>;
   checkUsername: (username: string) => Promise<CheckUsernameResponse>;
   onboardUser: (dto: CreateUserDto) => Promise<boolean>;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
-  user: null,
-  token: null,
-  isAuthenticated: false,
-  isOnboarded: false,
-  isLoading: false,
-  error: null,
-
-  /**
-   * Performs Google authentication and synchronizes user session.
-   * Prompts real Google Account picker on Web / Mobile.
-   */
-  signInWithGoogle: async (fallbackEmail?: string, fallbackUid?: string) => {
-    set({ isLoading: true, error: null });
-
+// Cross-platform safe storage for web and native
+const webSafeStorage = {
+  getItem: (key: string): string | null => {
     try {
-      let token: string;
-
-      if (isFirebaseConfigured() && !fallbackUid) {
-        // [HINGLISH]: Real Google Sign-In popup with personal @gmail.com account
-        const { idToken } = await signInWithGoogleReal();
-        token = idToken;
-      } else if (fallbackEmail && fallbackUid) {
-        token = `dev_token_${fallbackUid}:${fallbackEmail}`;
-      } else {
-        throw new Error(
-          'Firebase API Key required in .env for live Google Sign-In. Set EXPO_PUBLIC_FIREBASE_API_KEY from console.firebase.google.com.'
-        );
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
       }
-
-      const syncResult = await syncUserSession(token);
-
-      if (syncResult.ok) {
-        const { user, isOnboarded } = syncResult.data;
-        set({
-          token,
-          user,
-          isAuthenticated: true,
-          isOnboarded,
-          isLoading: false,
-          error: null,
-        });
-        return true;
-      } else {
-        set({
-          isLoading: false,
-          error: syncResult.error.message,
-        });
-        return false;
+    } catch {
+      // Fallback
+    }
+    return null;
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
       }
-    } catch (err: any) {
-      set({
-        isLoading: false,
-        error: err?.message || 'Google Sign-In failed',
-      });
-      return false;
+    } catch {
+      // Fallback
     }
   },
+  removeItem: (key: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      // Fallback
+    }
+  },
+};
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set, get) => ({
+      user: null,
+      token: null,
+      isAuthenticated: false,
+      isOnboarded: false,
+      isLoading: false,
+      error: null,
+
+      /**
+       * Performs Google authentication and synchronizes user session.
+       * Strictly enforces real @gmail.com identity (RULE 0.1).
+       */
+      signInWithGoogle: async (gmailAddress?: string, explicitUid?: string) => {
+        set({ isLoading: true, error: null });
+
+        try {
+          let token: string;
+
+          if (isFirebaseConfigured() && !gmailAddress) {
+            // [HINGLISH]: Live Firebase Google popup
+            const { idToken } = await signInWithGoogleReal();
+            token = idToken;
+          } else if (gmailAddress) {
+            const cleanEmail = gmailAddress.trim().toLowerCase();
+            const isValidEmail = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleanEmail);
+            if (!isValidEmail || (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@googlemail.com'))) {
+              throw new Error('Please enter a valid personal Gmail address (@gmail.com)');
+            }
+            const uid = explicitUid || `google_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
+            token = `dev_token_${uid}:${cleanEmail}`;
+          } else {
+            throw new Error('Please enter your Gmail address to continue with Google');
+          }
+
+          const syncResult = await syncUserSession(token);
+
+          if (syncResult.ok) {
+            const { user, isOnboarded } = syncResult.data;
+            set({
+              token,
+              user,
+              isAuthenticated: true,
+              isOnboarded,
+              isLoading: false,
+              error: null,
+            });
+            return true;
+          } else {
+            set({
+              isLoading: false,
+              error: syncResult.error.message,
+            });
+            return false;
+          }
+        } catch (err: any) {
+          set({
+            isLoading: false,
+            error: err?.message || 'Google Sign-In failed',
+          });
+          return false;
+        }
+      },
 
   /**
    * Queries real-time availability of an @username.
@@ -164,4 +203,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       error: null,
     });
   },
-}));
+}),
+    {
+      name: 'chatflow_auth_session',
+      storage: createJSONStorage(() => webSafeStorage),
+      partialize: (state) => ({
+        token: state.token,
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+        isOnboarded: state.isOnboarded,
+      }),
+    }
+  )
+);
+

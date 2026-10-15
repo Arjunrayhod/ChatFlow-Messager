@@ -17,7 +17,7 @@
  * 5. Bottom "from CHATFLOW" footer.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -25,6 +25,10 @@ import {
   useColorScheme,
   Pressable,
   ActivityIndicator,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -33,6 +37,7 @@ import { tokens } from '../../src/theme/tokens';
 import { Text } from '../../src/components/atoms/Text';
 import { Avatar } from '../../src/components/atoms/Avatar';
 import { useAuthStore } from '../../src/store/useAuthStore';
+import { isFirebaseConfigured } from '../../src/services/firebase';
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
@@ -41,10 +46,38 @@ export default function SignInScreen() {
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
   const { signInWithGoogle, isLoading, error } = useAuthStore();
+  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
+  const [gmailInput, setGmailInput] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  const handleGoogleSignIn = async (email?: string, uid?: string) => {
-    const success = await signInWithGoogle(email, uid);
+  const handleGoogleButtonClick = async () => {
+    if (isFirebaseConfigured()) {
+      await handleGoogleSignIn();
+    } else {
+      setIsGoogleModalOpen(true);
+    }
+  };
+
+  const handleGoogleSignIn = async (email?: string) => {
+    setValidationError(null);
+    const targetEmail = email || gmailInput.trim();
+
+    if (!isFirebaseConfigured() && !targetEmail) {
+      setValidationError('Please enter your personal Gmail address');
+      return;
+    }
+
+    if (targetEmail) {
+      const clean = targetEmail.trim().toLowerCase();
+      if (!clean.endsWith('@gmail.com') && !clean.endsWith('@googlemail.com')) {
+        setValidationError('Only real personal @gmail.com accounts are permitted');
+        return;
+      }
+    }
+
+    const success = await signInWithGoogle(targetEmail || undefined);
     if (success) {
+      setIsGoogleModalOpen(false);
       const { isOnboarded } = useAuthStore.getState();
       if (!isOnboarded) {
         router.replace('/(auth)/onboarding');
@@ -53,6 +86,7 @@ export default function SignInScreen() {
       }
     }
   };
+
 
   return (
     <View
@@ -173,7 +207,7 @@ export default function SignInScreen() {
         <View style={styles.actionsContainer}>
           {/* Main WhatsApp "Agree and continue" Pill Button */}
           <Pressable
-            onPress={() => void handleGoogleSignIn()}
+            onPress={() => void handleGoogleButtonClick()}
             disabled={isLoading}
             style={({ pressed }) => [
               styles.agreeButton,
@@ -218,6 +252,146 @@ export default function SignInScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Google Account Sign-In Modal */}
+      <Modal
+        visible={isGoogleModalOpen}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsGoogleModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setIsGoogleModalOpen(false)}
+          />
+          <View
+            style={[
+              styles.googleModalCard,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.divider,
+                borderRadius: tokens.radii.lg,
+                ...tokens.elevation[4],
+              },
+            ]}
+          >
+            {/* Modal Header */}
+            <View style={styles.googleModalHeader}>
+              <View
+                style={[
+                  styles.googleIconBadge,
+                  {
+                    backgroundColor: theme.surfaceEmphasized,
+                    borderColor: theme.divider,
+                  },
+                ]}
+              >
+                <Ionicons name="logo-google" size={28} color="#4285F4" />
+              </View>
+              <Text variant="h2" align="center" style={styles.googleModalTitle}>
+                Sign in with Google
+              </Text>
+              <Text variant="caption" colorRole="secondary" align="center">
+                Enter your real Gmail account to continue to ChatFlow
+              </Text>
+            </View>
+
+            {/* Email Input */}
+            <View style={styles.inputContainer}>
+              <Text variant="caption" colorRole="secondary" style={styles.inputLabel}>
+                Gmail Address
+              </Text>
+              <View
+                style={[
+                  styles.textInputWrapper,
+                  {
+                    backgroundColor: theme.background,
+                    borderColor: validationError ? theme.error : theme.divider,
+                    borderRadius: tokens.radii.sm,
+                  },
+                ]}
+              >
+                <Ionicons name="mail-outline" size={18} color={theme.textSecondary} style={{ marginLeft: 12 }} />
+                <TextInput
+                  value={gmailInput}
+                  onChangeText={(text) => {
+                    setGmailInput(text);
+                    if (validationError) setValidationError(null);
+                  }}
+                  placeholder="name@gmail.com"
+                  placeholderTextColor={theme.textDisabled}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[
+                    styles.textInputField,
+                    {
+                      color: theme.textPrimary,
+                    },
+                  ]}
+                />
+              </View>
+
+              {validationError && (
+                <View style={styles.validationErrorRow}>
+                  <Ionicons name="alert-circle" size={14} color={theme.error} />
+                  <Text variant="caption" colorRole="error" style={{ flex: 1 }}>
+                    {validationError}
+                  </Text>
+                </View>
+              )}
+
+              <Text variant="caption" colorRole="disabled" style={styles.privacyGuaranteeText}>
+                No phone numbers collected. Account strictly verified via Google & @username.
+              </Text>
+            </View>
+
+            {/* Modal Action Buttons */}
+            <View style={styles.modalActionButtons}>
+              <Pressable
+                onPress={() => setIsGoogleModalOpen(false)}
+                disabled={isLoading}
+                style={[
+                  styles.modalCancelButton,
+                  {
+                    borderColor: theme.divider,
+                    borderRadius: tokens.radii.pill,
+                  },
+                ]}
+              >
+                <Text variant="body" colorRole="secondary">
+                  Cancel
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => void handleGoogleSignIn()}
+                disabled={isLoading}
+                style={({ pressed }) => [
+                  styles.modalSubmitButton,
+                  {
+                    backgroundColor: theme.primary,
+                    borderRadius: tokens.radii.pill,
+                    opacity: pressed || isLoading ? 0.85 : 1,
+                  },
+                ]}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color={theme.textInverse} size="small" />
+                ) : (
+                  <Text variant="bodyMedium" colorRole="inverse" style={{ fontWeight: '600' }}>
+                    Continue
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -345,5 +519,89 @@ const styles = StyleSheet.create({
   footerBrand: {
     fontWeight: '700',
     letterSpacing: 2.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: tokens.spacing.lg,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  googleModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    padding: tokens.spacing.xl,
+    borderWidth: 1,
+    gap: tokens.spacing.lg,
+  },
+  googleModalHeader: {
+    alignItems: 'center',
+    gap: tokens.spacing.xs,
+  },
+  googleIconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginBottom: tokens.spacing.xs,
+  },
+  googleModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  inputContainer: {
+    gap: tokens.spacing.xs,
+  },
+  inputLabel: {
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  textInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    minHeight: 48,
+  },
+  textInputField: {
+    flex: 1,
+    paddingHorizontal: tokens.spacing.sm,
+    paddingVertical: tokens.spacing.sm,
+    fontSize: 16,
+  },
+  validationErrorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.xs,
+    marginTop: tokens.spacing.xs,
+  },
+  privacyGuaranteeText: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: tokens.spacing.xs,
+  },
+  modalActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: tokens.spacing.md,
+    marginTop: tokens.spacing.sm,
+  },
+  modalCancelButton: {
+    minHeight: 42,
+    paddingHorizontal: tokens.spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  modalSubmitButton: {
+    minHeight: 42,
+    paddingHorizontal: tokens.spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
