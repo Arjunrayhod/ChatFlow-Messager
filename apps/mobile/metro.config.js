@@ -15,5 +15,20 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, 'node_modules'),
 ];
 
+const standaloneAssetRegistry = path.resolve(
+  monorepoRoot,
+  'node_modules/.pnpm/@react-native+assets-registry@0.74.87/node_modules/@react-native/assets-registry/registry.js'
+);
+
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName.startsWith('@react-native/assets-registry')) {
+    return {
+      filePath: standaloneAssetRegistry,
+      type: 'sourceFile',
+    };
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;
 

@@ -21,7 +21,7 @@ import { Text } from '../src/components/atoms/Text';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useHealthStore } from '../src/store/useHealthStore';
 
-const AppLogo = require('../assets/logo.jpeg');
+const LOGO_URI = '/logo.jpeg';
 
 export default function GatewayScreen() {
   const router = useRouter();
@@ -55,7 +55,7 @@ export default function GatewayScreen() {
       <View style={styles.centerBrand}>
         <View style={styles.logoContainer}>
           <Image
-            source={AppLogo}
+            source={{ uri: LOGO_URI }}
             style={styles.logoImage}
             resizeMode="cover"
           />

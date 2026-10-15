@@ -40,7 +40,7 @@ import { Avatar } from '../../src/components/atoms/Avatar';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { isFirebaseConfigured } from '../../src/services/firebase';
 
-const AppLogo = require('../../assets/logo.jpeg');
+const LOGO_URI = '/logo.jpeg';
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
@@ -126,7 +126,7 @@ export default function SignInScreen() {
             ]}
           >
             <Image
-              source={AppLogo}
+              source={{ uri: LOGO_URI }}
               style={styles.heroLogoImage}
               resizeMode="cover"
             />
