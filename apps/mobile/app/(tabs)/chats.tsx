@@ -24,6 +24,7 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../src/theme/tokens';
 import { Text } from '../../src/components/atoms/Text';
@@ -38,6 +39,7 @@ import { Contact, UserProfile } from '@chatflow/shared';
 
 export default function ChatsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
@@ -237,6 +239,7 @@ export default function ChatsScreen() {
               styles.modalHeader,
               {
                 backgroundColor: theme.primary,
+                paddingTop: Math.max(insets.top, tokens.spacing.md),
               },
             ]}
           >

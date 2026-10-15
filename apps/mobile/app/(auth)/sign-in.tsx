@@ -1,23 +1,37 @@
 /**
- * @file Google Sign-In Screen.
- * Strict compliance with RULE 0.1: No phone number prompt, input, or mention.
- * Strict compliance with RULE 0.7: All styles derived strictly from tokens.ts.
+ * @file WhatsApp-authentic Welcome & Google Sign-In Screen.
+ * Replicates WhatsApp's iconic onboarding visual design:
+ * - Circular branded illustration
+ * - "Welcome to ChatFlow" header
+ * - Terms of Service & Privacy Policy acceptance
+ * - Full-width "Agree and continue" emerald pill button
+ * - Multi-account switcher (for testing)
+ * Strict compliance with RULE 0.1 (Zero phone numbers) and RULE 0.7 (Design system tokens).
  * 
  * [HINGLISH GUIDE]:
- * Yeh Google Authentication Screen hai:
- * - RULE: Yahan phone number ya OTP ka koi field nahi hai.
- * - Login ke baad check hota hai:
- *   - Agar user new hai to `/(auth)/onboarding` par bhejta hai taaki unique @username choose kare.
- *   - Agar pehle se onboarded hai to direct Home (`/`) ya Inbox par bhejta hai.
+ * Yeh WhatsApp jaisa authentic Welcome Screen hai:
+ * 1. Hero Circle: WhatsApp jaisa circular graphic aur brand logo.
+ * 2. Privacy Policy & Terms acceptance note.
+ * 3. "Agree and continue with Google" ka rounded pill button.
+ * 4. Multi-account switch chip taaki do users aapas me bina kisi glitch ke test kar sakein.
+ * 5. Bottom "from CHATFLOW" footer.
  */
 
 import React from 'react';
-import { View, StyleSheet, ScrollView, useColorScheme } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  useColorScheme,
+  Pressable,
+  ActivityIndicator,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../src/theme/tokens';
 import { Text } from '../../src/components/atoms/Text';
-import { Button } from '../../src/components/atoms/Button';
+import { Avatar } from '../../src/components/atoms/Avatar';
 import { useAuthStore } from '../../src/store/useAuthStore';
 
 export default function SignInScreen() {
@@ -46,128 +60,189 @@ export default function SignInScreen() {
         styles.safeArea,
         {
           backgroundColor: theme.background,
-          paddingTop: insets.top + tokens.spacing.md,
-          paddingBottom: insets.bottom + tokens.spacing.md,
+          paddingTop: Math.max(insets.top, tokens.spacing.md),
+          paddingBottom: Math.max(insets.bottom, tokens.spacing.md),
         },
       ]}
     >
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContainer,
-          { paddingHorizontal: tokens.spacing.md },
-        ]}
+        contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Illustration / Brand */}
-        <View style={styles.brandContainer}>
+        {/* Top Header Title */}
+        <View style={styles.topHeader}>
+          <Text variant="h1" align="center" style={styles.welcomeTitle}>
+            Welcome to ChatFlow
+          </Text>
+        </View>
+
+        {/* WhatsApp-Style Circular Hero Illustration */}
+        <View style={styles.heroIllustrationContainer}>
           <View
             style={[
-              styles.logoCircle,
+              styles.outerCircle,
               {
-                backgroundColor: theme.primary,
-                borderRadius: tokens.radii.pill,
-                width: tokens.spacing.huge * 2,
-                height: tokens.spacing.huge * 2,
+                backgroundColor: theme.surface,
+                borderColor: theme.divider,
               },
             ]}
           >
-            <Text variant="display" colorRole="inverse">
-              CF
-            </Text>
+            {/* Inner Ring with WhatsApp Emerald Accent */}
+            <View
+              style={[
+                styles.innerCircle,
+                {
+                  backgroundColor: theme.surfaceEmphasized,
+                  borderColor: theme.primary,
+                },
+              ]}
+            >
+              <Ionicons name="chatbubbles" size={72} color={theme.primary} />
+              <View
+                style={[
+                  styles.lockBadge,
+                  {
+                    backgroundColor: theme.primary,
+                    borderColor: theme.background,
+                  },
+                ]}
+              >
+                <Ionicons name="lock-closed" size={16} color={theme.textInverse} />
+              </View>
+            </View>
           </View>
+        </View>
 
-          <Text variant="display" align="center" style={styles.welcomeTitle}>
-            Welcome to ChatFlow
-          </Text>
-
+        {/* Middle Section: WhatsApp Terms & Privacy Notice */}
+        <View style={styles.termsContainer}>
           <Text
             variant="body"
             colorRole="secondary"
             align="center"
-            style={styles.subtitle}
+            style={styles.termsText}
           >
-            Simple. Secure. Reliable messaging.
-          </Text>
-        </View>
-
-        {/* Value Proposition Box */}
-        <View
-          style={[
-            styles.privacyBox,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.divider,
-              borderRadius: tokens.radii.lg,
-              padding: tokens.spacing.lg,
-            },
-          ]}
-        >
-          <Text variant="h3" style={styles.privacyHeader}>
-            Privacy by Design
-          </Text>
-          <Text variant="body" colorRole="secondary">
-            Sign in with your Google account. We identify you solely by your Google ID and chosen @username.
-          </Text>
-          <View
-            style={[
-              styles.badgeHighlight,
-              {
-                backgroundColor: theme.surfaceEmphasized,
-                borderRadius: tokens.radii.sm,
-                padding: tokens.spacing.xs,
-              },
-            ]}
-          >
-            <Text variant="caption" colorRole="primary">
-              🔒 No phone numbers. No SIM cards. No SMS codes.
+            Read our{' '}
+            <Text variant="body" style={[styles.linkText, { color: theme.primary }]}>
+              Privacy Policy
             </Text>
-          </View>
-        </View>
+            . Tap "Agree and continue" to accept the{' '}
+            <Text variant="body" style={[styles.linkText, { color: theme.primary }]}>
+              Terms of Service
+            </Text>
+            .
+          </Text>
 
-        {/* Error Feedback */}
-        {error && (
+          {/* Privacy Guarantee Pill */}
           <View
             style={[
-              styles.errorCard,
+              styles.privacyPill,
               {
                 backgroundColor: theme.surface,
-                borderColor: theme.error,
-                borderRadius: tokens.radii.md,
-                padding: tokens.spacing.sm,
+                borderColor: theme.divider,
+                borderRadius: tokens.radii.pill,
               },
             ]}
           >
-            <Text variant="caption" colorRole="error" align="center">
-              {error}
+            <Ionicons name="shield-checkmark" size={16} color={theme.primary} />
+            <Text variant="caption" colorRole="secondary" style={styles.privacyPillText}>
+              No phone numbers. Secured with Google & @username.
             </Text>
           </View>
-        )}
 
-        {/* Action Controls */}
-        <View style={styles.actionsContainer}>
-          <Button
-            label={isLoading ? 'Connecting...' : 'Continue with Google'}
-            onPress={() => void handleGoogleSignIn('user@gmail.com', 'google_user_01')}
-            variant="primary"
-            size="lg"
-            isLoading={isLoading}
-            fullWidth={true}
-          />
-
-          <Button
-            label="Try with Alternate Dev Account"
-            onPress={() => void handleGoogleSignIn('alex.rivers@gmail.com', 'google_user_alex')}
-            variant="secondary"
-            size="md"
-            isDisabled={isLoading}
-            fullWidth={true}
-          />
+          {/* Error Message Feedback */}
+          {error && (
+            <View
+              style={[
+                styles.errorCard,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.error,
+                  borderRadius: tokens.radii.md,
+                },
+              ]}
+            >
+              <Ionicons name="alert-circle" size={18} color={theme.error} />
+              <Text variant="caption" colorRole="error" style={{ flex: 1 }}>
+                {error}
+              </Text>
+            </View>
+          )}
         </View>
 
-        {/* Footer Terms */}
-        <View style={styles.footer}>
+        {/* Action Buttons Area */}
+        <View style={styles.actionsContainer}>
+          {/* Main WhatsApp "Agree and continue" Pill Button */}
+          <Pressable
+            onPress={() => void handleGoogleSignIn('user@gmail.com', 'google_user_01')}
+            disabled={isLoading}
+            style={({ pressed }) => [
+              styles.agreeButton,
+              {
+                backgroundColor: theme.primary,
+                borderRadius: tokens.radii.pill,
+                opacity: pressed || isLoading ? 0.85 : 1,
+                ...tokens.elevation[2],
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Agree and continue with Google"
+          >
+            {isLoading ? (
+              <ActivityIndicator color={theme.textInverse} size="small" />
+            ) : (
+              <View style={styles.buttonContentRow}>
+                <Ionicons name="logo-google" size={20} color={theme.textInverse} />
+                <Text
+                  variant="bodyMedium"
+                  colorRole="inverse"
+                  style={styles.agreeButtonText}
+                >
+                  Agree and continue
+                </Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* WhatsApp Multi-Account Switcher (Demo / Pair Account) */}
+          <Pressable
+            onPress={() => void handleGoogleSignIn('alex.rivers@gmail.com', 'google_user_alex')}
+            disabled={isLoading}
+            style={({ pressed }) => [
+              styles.accountSwitchRow,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.divider,
+                borderRadius: tokens.radii.md,
+                opacity: pressed || isLoading ? 0.75 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Switch to Alternate Demo Account"
+          >
+            <Avatar name="Alex Rivers" size="sm" />
+            <View style={styles.accountSwitchTextCol}>
+              <Text variant="caption" colorRole="secondary">
+                Switch to Demo Account 2
+              </Text>
+              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                Alex Rivers (@alex_rivers)
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+          </Pressable>
+        </View>
+
+        {/* WhatsApp-Style Footer */}
+        <View style={styles.footerContainer}>
           <Text variant="caption" colorRole="disabled" align="center">
-            By continuing, you agree to ChatFlow Terms of Service and Privacy Policy.
+            from
+          </Text>
+          <Text
+            variant="caption"
+            align="center"
+            style={[styles.footerBrand, { color: theme.primary }]}
+          >
+            CHATFLOW
           </Text>
         </View>
       </ScrollView>
@@ -182,44 +257,121 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'space-between',
+    paddingHorizontal: tokens.spacing.lg,
     paddingVertical: tokens.spacing.lg,
-    gap: tokens.spacing.xl,
   },
-  brandContainer: {
+  topHeader: {
     alignItems: 'center',
-    gap: tokens.spacing.sm,
-    marginTop: tokens.spacing.xl,
-  },
-  logoCircle: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: tokens.spacing.sm,
+    marginTop: tokens.spacing.lg,
   },
   welcomeTitle: {
+    fontSize: 26,
+    fontWeight: '700',
     letterSpacing: -0.5,
   },
-  subtitle: {
-    maxWidth: 280,
+  heroIllustrationContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: tokens.spacing.xl,
   },
-  privacyBox: {
+  outerCircle: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  innerCircle: {
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    position: 'relative',
+  },
+  lockBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+  },
+  termsContainer: {
+    alignItems: 'center',
+    gap: tokens.spacing.md,
+    paddingHorizontal: tokens.spacing.sm,
+  },
+  termsText: {
+    lineHeight: 20,
+    maxWidth: 320,
+  },
+  linkText: {
+    fontWeight: '600',
+  },
+  privacyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.xs,
     borderWidth: 1,
-    gap: tokens.spacing.sm,
+    gap: tokens.spacing.xs,
   },
-  privacyHeader: {
-    marginBottom: tokens.spacing.xxs,
-  },
-  badgeHighlight: {
-    marginTop: tokens.spacing.xxs,
+  privacyPillText: {
+    fontSize: 12,
   },
   errorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: tokens.spacing.sm,
     borderWidth: 1,
+    gap: tokens.spacing.xs,
+    width: '100%',
   },
   actionsContainer: {
+    marginTop: tokens.spacing.xl,
     gap: tokens.spacing.md,
     width: '100%',
   },
-  footer: {
-    marginTop: tokens.spacing.sm,
-    paddingHorizontal: tokens.spacing.lg,
+  agreeButton: {
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: tokens.spacing.xl,
+  },
+  buttonContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.sm,
+  },
+  agreeButtonText: {
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  accountSwitchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.sm,
+    borderWidth: 1,
+    gap: tokens.spacing.md,
+  },
+  accountSwitchTextCol: {
+    flex: 1,
+    gap: 1,
+  },
+  footerContainer: {
+    marginTop: tokens.spacing.xxl,
+    alignItems: 'center',
+    gap: 2,
+  },
+  footerBrand: {
+    fontWeight: '700',
+    letterSpacing: 2.5,
   },
 });

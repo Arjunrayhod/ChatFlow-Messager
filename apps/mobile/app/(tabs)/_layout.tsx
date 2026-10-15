@@ -10,50 +10,57 @@
  * 3. Calls Tab: Voice aur video calls history
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Tabs, useRouter } from 'expo-router';
-import { useColorScheme, Pressable } from 'react-native';
+import { useColorScheme, Pressable, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../src/theme/tokens';
 import { Text } from '../../src/components/atoms/Text';
+import { SettingsModal } from '../../src/components/molecules/SettingsModal';
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const router = useRouter();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   return (
-    <Tabs
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: theme.primary,
-        },
-        headerTintColor: theme.textInverse,
-        headerTitleStyle: {
-          ...tokens.typography.h1,
-          color: theme.textInverse,
-        },
-        headerRight: () => (
-          <Pressable
-            onPress={() => router.push('/')}
-            style={{
-              paddingHorizontal: tokens.spacing.md,
-              minWidth: tokens.spacing.huge,
-              minHeight: tokens.spacing.huge,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Gateway and Account info"
-          >
-            <Ionicons name="person-circle-outline" size={28} color={theme.textInverse} />
-          </Pressable>
-        ),
+    <>
+      <Tabs
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: theme.primary,
+          },
+          headerTintColor: theme.textInverse,
+          headerTitleStyle: {
+            ...tokens.typography.h1,
+            color: theme.textInverse,
+          },
+          headerRight: () => (
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: tokens.spacing.xs }}>
+              <Pressable
+                onPress={() => setIsSettingsOpen(true)}
+                style={{
+                  paddingHorizontal: tokens.spacing.xs,
+                  minWidth: tokens.spacing.huge,
+                  minHeight: tokens.spacing.huge,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Settings and Profile"
+              >
+                <Ionicons name="ellipsis-vertical" size={22} color={theme.textInverse} />
+              </Pressable>
+            </View>
+          ),
         tabBarStyle: {
           backgroundColor: theme.surface,
           borderTopColor: theme.divider,
-          height: 60,
-          paddingBottom: tokens.spacing.xs,
+          height: 60 + Math.max(insets.bottom, 0),
+          paddingBottom: Math.max(insets.bottom, tokens.spacing.xs),
           paddingTop: tokens.spacing.xs,
         },
         tabBarActiveTintColor: theme.primary,
@@ -98,5 +105,11 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
-  );
+
+    <SettingsModal
+      visible={isSettingsOpen}
+      onClose={() => setIsSettingsOpen(false)}
+    />
+  </>
+);
 }
