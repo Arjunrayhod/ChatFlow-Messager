@@ -32,6 +32,7 @@ import { StatusItem, UserStoryGroup } from '@chatflow/shared';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useStatusStore } from '../../store/useStatusStore';
 import { StatusViewersModal } from './StatusViewersModal';
+import { resolveMediaUrl } from '../../services/api';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -223,7 +224,7 @@ export const StatusViewerModal: React.FC<StatusViewerModalProps> = ({
             </View>
           ) : (
             <Image
-              source={{ uri: currentStory.mediaUrl || '' }}
+              source={{ uri: resolveMediaUrl(currentStory.mediaUrl) || '' }}
               style={styles.mediaImage}
               resizeMode="contain"
             />

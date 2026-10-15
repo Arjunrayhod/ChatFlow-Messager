@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../theme/tokens';
 import { Text } from '../atoms/Text';
 import { MessageType } from '@chatflow/shared';
+import { resolveMediaUrl } from '../../services/api';
 
 export interface MediaLightboxData {
   url: string;
@@ -51,6 +52,7 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
   if (!data) return null;
 
   const { url, type, metadata, senderName, timestamp } = data;
+  const resolvedUrl = resolveMediaUrl(url);
   const isHD = metadata?.isHD !== false;
   const fileSize = typeof metadata?.fileSize === 'number' ? metadata.fileSize : undefined;
   const fileName = typeof metadata?.fileName === 'string' ? metadata.fileName : 'chatflow_media';
@@ -60,14 +62,14 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
   const handleDownload = () => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const a = document.createElement('a');
-      a.href = url;
+      a.href = resolvedUrl;
       a.download = fileName;
       a.target = '_blank';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
     } else {
-      Alert.alert('Download', `Original file link: ${url}`);
+      Alert.alert('Download', `Original file link: ${resolvedUrl}`);
     }
   };
 
@@ -127,14 +129,14 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
         <View style={styles.contentViewport}>
           {type === 'image' ? (
             <Image
-              source={{ uri: url }}
+              source={{ uri: resolvedUrl }}
               style={styles.fullImage}
               resizeMode="contain"
             />
           ) : type === 'video' ? (
             Platform.OS === 'web' ? (
               <video
-                src={url}
+                src={resolvedUrl}
                 style={{
                   maxWidth: '100%',
                   maxHeight: '100%',

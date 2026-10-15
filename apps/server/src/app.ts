@@ -30,9 +30,14 @@ import { errorHandler } from './middlewares/error-handler';
 export function createApp(): Application {
   const app = express();
 
-  // [HINGLISH]: Helmet basic security headers automatically inject karta hai
+  // [HINGLISH]: Helmet security headers (configured for cross-origin image & video loading)
   // Security headers
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      crossOriginEmbedderPolicy: false,
+    })
+  );
 
   // Disable ETags to prevent empty 304 responses in client SPA fetch
   app.set('etag', false);
@@ -60,7 +65,16 @@ export function createApp(): Application {
   app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
   // Serve uploaded original HD photos and videos statically
-  app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
+  app.use(
+    '/uploads',
+    (_req, res, next) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      next();
+    },
+    express.static(path.resolve(__dirname, '../uploads'))
+  );
 
   // Request logger
   app.use((req, res, next) => {

@@ -11,7 +11,48 @@ import {
   CreateStatusDto,
 } from '@chatflow/shared';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000';
+import { Platform } from 'react-native';
+
+export function getApiBaseUrl(): string {
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname || 'localhost';
+    return `http://${host}:4000`;
+  }
+  return 'http://localhost:4000';
+}
+
+export const API_BASE_URL = getApiBaseUrl();
+
+/**
+ * Resolves a media URL from backend to ensure cross-origin and LAN mobile accessibility.
+ */
+export function resolveMediaUrl(url?: string | null): string {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+
+  const base = getApiBaseUrl();
+  if (url.startsWith('/')) {
+    return `${base}${url}`;
+  }
+
+  // Handle cases where backend recorded http://localhost:4000 but client is on LAN IP
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+    const currentHost = window.location.hostname;
+    if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
+      if (url.includes('localhost:4000')) {
+        return url.replace('localhost:4000', `${currentHost}:4000`);
+      }
+      if (url.includes('127.0.0.1:4000')) {
+        return url.replace('127.0.0.1:4000', `${currentHost}:4000`);
+      }
+    }
+  }
+
+  return url;
+}
 
 export interface HealthCheckData {
   status: string;

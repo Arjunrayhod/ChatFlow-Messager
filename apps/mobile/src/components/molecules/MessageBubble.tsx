@@ -11,12 +11,13 @@
  * - Sent/Delivered/Read ticks and timestamps
  */
 
-import React from 'react';
-import { View, StyleSheet, useColorScheme, Pressable, Image, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, useColorScheme, Pressable, Image, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../theme/tokens';
 import { Text } from '../atoms/Text';
 import { MessageDeliveryStatus, MessageType } from '@chatflow/shared';
+import { resolveMediaUrl } from '../../services/api';
 
 export interface MessageBubbleProps {
   id: string;
@@ -73,13 +74,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
+  const resolvedMediaUrl = resolveMediaUrl(mediaUrl);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
   const handlePressMedia = () => {
-    if (mediaUrl && onMediaPress) {
-      onMediaPress({ url: mediaUrl, type, metadata });
+    if (resolvedMediaUrl && onMediaPress) {
+      onMediaPress({ url: resolvedMediaUrl, type, metadata });
     }
   };
 
-  const isMedia = (type === 'image' || type === 'video' || type === 'document') && !!mediaUrl;
+  const isMedia = (type === 'image' || type === 'video' || type === 'document') && !!resolvedMediaUrl;
 
   return (
     <View style={[styles.row, isSent ? styles.sentRow : styles.receivedRow]}>
@@ -98,7 +103,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ]}
       >
         {/* IMAGE MESSAGE */}
-        {type === 'image' && mediaUrl && (
+        {type === 'image' && resolvedMediaUrl && (
           <Pressable
             onPress={handlePressMedia}
             style={styles.imageContainer}
@@ -106,10 +111,31 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             accessibilityLabel="View full HD photo"
           >
             <Image
-              source={{ uri: mediaUrl }}
+              source={{ uri: resolvedMediaUrl }}
               style={styles.mediaImage}
               resizeMode="cover"
+              onLoadStart={() => setImageLoaded(false)}
+              onLoadEnd={() => setImageLoaded(true)}
+              onError={() => {
+                setImageLoaded(false);
+                setImageError(true);
+              }}
             />
+
+            {!imageLoaded && !imageError && (
+              <View style={styles.imagePlaceholderBox}>
+                <ActivityIndicator size="small" color={theme.primary} />
+              </View>
+            )}
+
+            {imageError && (
+              <View style={styles.imagePlaceholderBox}>
+                <Ionicons name="image-outline" size={32} color={theme.textDisabled} />
+                <Text variant="caption" style={{ color: '#FFFFFF', marginTop: 4 }}>
+                  Tap to view
+                </Text>
+              </View>
+            )}
 
             {/* WhatsApp-style HD Badge */}
             {isHD && (
@@ -131,7 +157,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         )}
 
         {/* VIDEO MESSAGE */}
-        {type === 'video' && mediaUrl && (
+        {type === 'video' && resolvedMediaUrl && (
           <Pressable
             onPress={handlePressMedia}
             style={styles.videoContainer}
@@ -141,7 +167,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             {/* If video element is supported on web, render preview or play button */}
             {Platform.OS === 'web' ? (
               <video
-                src={mediaUrl}
+                src={resolvedMediaUrl}
                 style={{
                   width: '100%',
                   height: 200,
@@ -260,6 +286,12 @@ const styles = StyleSheet.create({
   mediaImage: {
     width: '100%',
     height: '100%',
+  },
+  imagePlaceholderBox: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
   },
   videoContainer: {
     width: '100%',
