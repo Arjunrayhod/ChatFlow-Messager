@@ -5,17 +5,25 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "splash": {
-      "backgroundColor": "#008069"
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#121b22"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chatflow.app"
     },
     "android": {
-      "package": "com.chatflow.app"
+      "package": "com.chatflow.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#121b22"
+      }
     },
     "web": {
+      "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
     "plugins": [

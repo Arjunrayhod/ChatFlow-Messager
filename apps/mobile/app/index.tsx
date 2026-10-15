@@ -14,13 +14,14 @@
  */
 
 import React, { useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, useColorScheme } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, useColorScheme, Image } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../src/theme/tokens';
 import { Text } from '../src/components/atoms/Text';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useHealthStore } from '../src/store/useHealthStore';
+
+const AppLogo = require('../assets/logo.jpeg');
 
 export default function GatewayScreen() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function GatewayScreen() {
     // Probe backend connectivity in background
     void checkHealth();
 
-    // Small delay to allow Zustand hydration, then route smoothly
+    // Smooth splash delay for WhatsApp-style brand reveal
     const timer = setTimeout(() => {
       if (isAuthenticated && isOnboarded) {
         router.replace('/(tabs)/chats');
@@ -43,7 +44,7 @@ export default function GatewayScreen() {
       } else {
         router.replace('/(auth)/sign-in');
       }
-    }, 150);
+    }, 600);
 
     return () => clearTimeout(timer);
   }, [isAuthenticated, isOnboarded, router, checkHealth]);
@@ -52,16 +53,12 @@ export default function GatewayScreen() {
     <View style={[styles.splashRoot, { backgroundColor: theme.background }]}>
       {/* WhatsApp-Style Splash Center Logo */}
       <View style={styles.centerBrand}>
-        <View
-          style={[
-            styles.brandIconCircle,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.primary,
-            },
-          ]}
-        >
-          <Ionicons name="chatbubbles" size={60} color={theme.primary} />
+        <View style={styles.logoContainer}>
+          <Image
+            source={AppLogo}
+            style={styles.logoImage}
+            resizeMode="cover"
+          />
         </View>
         <Text variant="h1" align="center" style={styles.splashTitle}>
           ChatFlow
@@ -69,7 +66,7 @@ export default function GatewayScreen() {
         <ActivityIndicator
           size="small"
           color={theme.primary}
-          style={{ marginTop: tokens.spacing.md }}
+          style={{ marginTop: tokens.spacing.lg }}
         />
       </View>
 
@@ -102,17 +99,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flex: 1,
   },
-  brandIconCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
+  logoContainer: {
     marginBottom: tokens.spacing.md,
+    ...tokens.elevation[4],
+  },
+  logoImage: {
+    width: 130,
+    height: 130,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: 'rgba(37, 211, 102, 0.4)',
   },
   splashTitle: {
     letterSpacing: -0.5,
+    marginTop: tokens.spacing.xs,
   },
   splashFooter: {
     alignItems: 'center',

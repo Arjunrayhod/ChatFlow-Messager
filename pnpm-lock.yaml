@@ -32,6 +32,9 @@ importers:
       '@firebase/auth':
         specifier: ^1.13.7
         version: 1.13.7(@firebase/app@0.16.3)
+      '@react-native/assets-registry':
+        specifier: ^0.87.1
+        version: 0.87.1(react-native@0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0))
       engine.io-client:
         specifier: ^6.6.7
         version: 6.6.7
@@ -1407,6 +1410,12 @@ packages:
   '@react-native/assets-registry@0.74.87':
     resolution: {integrity: sha512-1XmRhqQchN+pXPKEKYdpJlwESxVomJOxtEnIkbo7GAlaN2sym84fHEGDXAjLilih5GVPpcpSmFzTy8jx3LtaFg==}
     engines: {node: '>=18'}
+
+  '@react-native/assets-registry@0.87.1':
+    resolution: {integrity: sha512-XmE1I4YM61ariwFMm9gAd5FnqztP89qDx1WVKJMQTxI/g+V8riuwJts33hsFkR0lC0Mj8oc+V4L/AXk3F9XseA==}
+    engines: {node: ^22.13.0 || ^24.3.0 || >= 26.0.0}
+    peerDependencies:
+      react-native: '*'
 
   '@react-native/babel-plugin-codegen@0.74.87':
     resolution: {integrity: sha512-+vJYpMnENFrwtgvDfUj+CtVJRJuUnzAUYT0/Pb68Sq9RfcZ5xdcCuUgyf7JO+akW2VTBoJY427wkcxU30qrWWw==}
@@ -7023,6 +7032,10 @@ snapshots:
       - utf-8-validate
 
   '@react-native/assets-registry@0.74.87': {}
+
+  '@react-native/assets-registry@0.87.1(react-native@0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0))':
+    dependencies:
+      react-native: 0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0)
 
   '@react-native/babel-plugin-codegen@0.74.87(@babel/preset-env@7.29.7(@babel/core@7.29.7))':
     dependencies:

@@ -29,6 +29,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -38,6 +39,8 @@ import { Text } from '../../src/components/atoms/Text';
 import { Avatar } from '../../src/components/atoms/Avatar';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { isFirebaseConfigured } from '../../src/services/firebase';
+
+const AppLogo = require('../../assets/logo.jpeg');
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
@@ -110,7 +113,7 @@ export default function SignInScreen() {
           </Text>
         </View>
 
-        {/* WhatsApp-Style Circular Hero Illustration */}
+        {/* WhatsApp-Style Circular Hero Illustration with Custom Logo */}
         <View style={styles.heroIllustrationContainer}>
           <View
             style={[
@@ -118,32 +121,15 @@ export default function SignInScreen() {
               {
                 backgroundColor: theme.surface,
                 borderColor: theme.divider,
+                ...tokens.elevation[3],
               },
             ]}
           >
-            {/* Inner Ring with WhatsApp Emerald Accent */}
-            <View
-              style={[
-                styles.innerCircle,
-                {
-                  backgroundColor: theme.surfaceEmphasized,
-                  borderColor: theme.primary,
-                },
-              ]}
-            >
-              <Ionicons name="chatbubbles" size={72} color={theme.primary} />
-              <View
-                style={[
-                  styles.lockBadge,
-                  {
-                    backgroundColor: theme.primary,
-                    borderColor: theme.background,
-                  },
-                ]}
-              >
-                <Ionicons name="lock-closed" size={16} color={theme.textInverse} />
-              </View>
-            </View>
+            <Image
+              source={AppLogo}
+              style={styles.heroLogoImage}
+              resizeMode="cover"
+            />
           </View>
         </View>
 
@@ -421,32 +407,18 @@ const styles = StyleSheet.create({
     marginVertical: tokens.spacing.xl,
   },
   outerCircle: {
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-  },
-  innerCircle: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    position: 'relative',
+    overflow: 'hidden',
   },
-  lockBadge: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
+  heroLogoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 105,
   },
   termsContainer: {
     alignItems: 'center',
