@@ -17,9 +17,10 @@ import { db } from '../services/db';
 export const messagesRouter: Router = Router();
 
 const sendMessageSchema = z.object({
-  content: z.string().trim().min(1, 'Message cannot be empty').max(4000),
+  content: z.string().trim().max(4000).default(''),
   type: z.enum(['text', 'image', 'video', 'audio', 'document', 'location']).default('text'),
-  mediaUrl: z.string().url().optional(),
+  mediaUrl: z.string().optional(),
+  metadata: z.record(z.any()).optional(),
   replyToId: z.string().optional(),
 });
 
@@ -71,7 +72,7 @@ messagesRouter.post(
     const currentUser = await db.findUserByFirebaseUid(req.uid);
     const senderId = currentUser ? currentUser.id : req.uid;
 
-    const { content, type, mediaUrl, replyToId } = parseResult.data;
+    const { content, type, mediaUrl, replyToId, metadata } = parseResult.data;
 
     const message = await db.saveMessage(
       chatId,
@@ -79,7 +80,8 @@ messagesRouter.post(
       content,
       type,
       mediaUrl,
-      replyToId
+      replyToId,
+      metadata
     );
 
     // Ensure reciprocal contacts in inbox

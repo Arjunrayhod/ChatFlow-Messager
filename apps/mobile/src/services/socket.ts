@@ -102,7 +102,8 @@ export function emitMessage(
   content: string,
   clientTempId: string,
   type: MessageType = 'text',
-  mediaUrl?: string
+  mediaUrl?: string,
+  metadata?: Record<string, unknown> | null
 ): void {
   if (socketInstance) {
     socketInstance.emit('send_message', {
@@ -110,7 +111,8 @@ export function emitMessage(
       clientTempId,
       content,
       type,
-      mediaUrl,
+      mediaUrl: mediaUrl || undefined,
+      metadata: metadata || null,
     });
   }
 }

@@ -10,7 +10,7 @@
  */
 
 import { create } from 'zustand';
-import { ChatMessage, MessageDeliveryStatus } from '@chatflow/shared';
+import { ChatMessage, MessageDeliveryStatus, MessageType } from '@chatflow/shared';
 import { getMessageHistory } from '../services/api';
 import { emitMessage, emitTypingStart, emitTypingStop } from '../services/socket';
 
@@ -20,7 +20,14 @@ export interface MessageState {
   typingUsersByChatId: Record<string, string[]>;
 
   loadHistory: (chatId: string, token: string) => Promise<void>;
-  sendMessage: (chatId: string, content: string, currentUserId: string) => void;
+  sendMessage: (
+    chatId: string,
+    content: string,
+    currentUserId: string,
+    type?: MessageType,
+    mediaUrl?: string | null,
+    metadata?: Record<string, unknown> | null
+  ) => void;
   receiveMessage: (message: ChatMessage, clientTempId?: string) => void;
   setUserTyping: (chatId: string, username: string, isTyping: boolean) => void;
   updateMessageStatus: (messageId: string, chatId: string, status: MessageDeliveryStatus) => void;
@@ -58,7 +65,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   /**
    * Optimistically creates message in store and emits to Socket.IO server.
    */
-  sendMessage: (chatId: string, content: string, currentUserId: string) => {
+  sendMessage: (
+    chatId: string,
+    content: string,
+    currentUserId: string,
+    type: MessageType = 'text',
+    mediaUrl: string | null = null,
+    metadata: Record<string, unknown> | null = null
+  ) => {
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString();
 
@@ -66,10 +80,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       id: tempId,
       chatId,
       senderId: currentUserId,
-      type: 'text',
+      type,
       content: content.trim(),
-      mediaUrl: null,
-      metadata: null,
+      mediaUrl: mediaUrl || null,
+      metadata: metadata || null,
       status: 'sending',
       replyToId: null,
       createdAt: now,
@@ -89,7 +103,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     });
 
     // Emit over Socket.IO
-    emitMessage(chatId, content.trim(), tempId, 'text');
+    emitMessage(chatId, content.trim(), tempId, type, mediaUrl || undefined, metadata || null);
   },
 
   /**

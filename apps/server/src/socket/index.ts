@@ -98,7 +98,7 @@ export function initSocketServer(
     });
 
     // 3. Send Message
-    socket.on('send_message', async ({ chatId, clientTempId, type, content, mediaUrl, replyToId }) => {
+    socket.on('send_message', async ({ chatId, clientTempId, type, content, mediaUrl, replyToId, metadata }) => {
       try {
         const message: ChatMessage = await db.saveMessage(
           chatId,
@@ -106,7 +106,8 @@ export function initSocketServer(
           content,
           type,
           mediaUrl,
-          replyToId
+          replyToId,
+          metadata
         );
 
         // Broadcast to all participants in this conversation

@@ -9,10 +9,12 @@ import { rateLimit } from 'express-rate-limit';
 import { createErrorResponse } from '@chatflow/shared';
 import { env } from './config/env';
 import { logger } from './utils/logger';
+import path from 'path';
 import { healthRouter } from './routes/health';
 import { usersRouter } from './routes/users';
 import { contactsRouter } from './routes/contacts';
 import { messagesRouter } from './routes/messages';
+import { uploadRouter } from './routes/upload';
 import { notFoundHandler } from './middlewares/not-found';
 import { errorHandler } from './middlewares/error-handler';
 
@@ -51,10 +53,13 @@ export function createApp(): Application {
     next();
   });
 
-  // [HINGLISH]: Incoming JSON body aur forms ko parse karne ke liye (10MB payload limit)
+  // [HINGLISH]: Incoming JSON body aur forms ko parse karne ke liye (100MB payload limit for uncompressed HD media)
   // Body parsers
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+  // Serve uploaded original HD photos and videos statically
+  app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
   // Request logger
   app.use((req, res, next) => {
@@ -100,11 +105,13 @@ export function createApp(): Application {
   // - /api/users: User profile, @username search, sync aur onboarding
   // - /api/contacts: User ke contacts save aur retrieve karna
   // - /api/messages: Message history aur REST fallback
+  // - /api/upload: Original HD media file uploads
   // Routes
   app.use('/health', healthRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/contacts', contactsRouter);
   app.use('/api/messages', messagesRouter);
+  app.use('/api/upload', uploadRouter);
 
   // [HINGLISH]: Unmatched routes ke liye 404 handler aur common error handler
   // Fallthrough 404 & error handling

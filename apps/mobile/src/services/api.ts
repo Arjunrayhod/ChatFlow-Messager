@@ -282,4 +282,49 @@ export async function getMessageHistory(
   }
 }
 
+export interface UploadMediaPayload {
+  fileName: string;
+  mimeType: string;
+  data: string;
+  isHD?: boolean;
+  width?: number;
+  height?: number;
+  duration?: number;
+}
+
+export interface UploadMediaResponse {
+  url: string;
+  fileName: string;
+  savedFileName: string;
+  mimeType: string;
+  fileSize: number;
+  isHD: boolean;
+  width?: number | null;
+  height?: number | null;
+  duration?: number | null;
+}
+
+/**
+ * Uploads original uncompressed HD photo or video to ChatFlow server.
+ */
+export async function uploadMedia(
+  payload: UploadMediaPayload
+): Promise<ApiResponse<UploadMediaResponse>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/upload`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Upload failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
 

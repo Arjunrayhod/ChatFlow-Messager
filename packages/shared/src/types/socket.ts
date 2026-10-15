@@ -15,6 +15,7 @@ export interface ClientToServerEvents {
     type: MessageType;
     content: string;
     mediaUrl?: string;
+    metadata?: Record<string, unknown> | null;
     replyToId?: string;
   }) => void;
   typing_start: (payload: { chatId: string }) => void;

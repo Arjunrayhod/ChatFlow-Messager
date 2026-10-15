@@ -22,6 +22,7 @@ import {
   Platform,
   useColorScheme,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,8 +33,11 @@ import { Avatar } from '../../src/components/atoms/Avatar';
 import { TextInputField } from '../../src/components/atoms/TextInputField';
 import { IconButton } from '../../src/components/atoms/IconButton';
 import { MessageBubble } from '../../src/components/molecules/MessageBubble';
+import { MediaPreviewModal, SelectedMediaFile } from '../../src/components/molecules/MediaPreviewModal';
+import { MediaLightboxModal, MediaLightboxData } from '../../src/components/molecules/MediaLightboxModal';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useMessageStore } from '../../src/store/useMessageStore';
+import * as api from '../../src/services/api';
 import {
   connectSocket,
   joinRoom,
@@ -65,10 +69,137 @@ export default function ChatRoomScreen() {
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // HD Media States
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMediaFile | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [lightboxData, setLightboxData] = useState<MediaLightboxData | null>(null);
 
   const recipientId = params.id;
   const recipientName = params.name || 'Conversation';
   const recipientUsername = params.username ? `@${params.username.replace(/^@/, '')}` : '';
+
+  // File selection handler
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    const mediaType = isVideo ? 'video' : isImage ? 'image' : 'document';
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+
+      if (isImage) {
+        const img = new (window as any).Image();
+        img.onload = () => {
+          setSelectedMedia({
+            file,
+            previewUrl: dataUrl,
+            dataUrl,
+            fileName: file.name,
+            mimeType: file.type || 'image/jpeg',
+            fileSize: file.size,
+            width: img.naturalWidth,
+            height: img.naturalHeight,
+            type: 'image',
+          });
+        };
+        img.src = dataUrl;
+      } else if (isVideo) {
+        const video = document.createElement('video');
+        video.onloadedmetadata = () => {
+          setSelectedMedia({
+            file,
+            previewUrl: dataUrl,
+            dataUrl,
+            fileName: file.name,
+            mimeType: file.type || 'video/mp4',
+            fileSize: file.size,
+            width: video.videoWidth,
+            height: video.videoHeight,
+            duration: Math.round(video.duration),
+            type: 'video',
+          });
+        };
+        video.src = dataUrl;
+      } else {
+        setSelectedMedia({
+          file,
+          previewUrl: dataUrl,
+          dataUrl,
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          fileSize: file.size,
+          type: 'document',
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Send original HD media
+  const handleSendMedia = async (media: SelectedMediaFile, caption: string, isHD: boolean) => {
+    if (!user?.id) return;
+    setIsUploading(true);
+
+    try {
+      const uploadRes = await api.uploadMedia({
+        fileName: media.fileName,
+        mimeType: media.mimeType,
+        data: media.dataUrl,
+        isHD,
+        width: media.width,
+        height: media.height,
+        duration: media.duration,
+      });
+
+      const mediaUrl = uploadRes.ok && uploadRes.data ? uploadRes.data.url : media.dataUrl;
+
+      sendMessage(
+        chatId,
+        caption,
+        user.id,
+        media.type,
+        mediaUrl,
+        {
+          isHD,
+          fileSize: media.fileSize,
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          width: media.width,
+          height: media.height,
+          duration: media.duration,
+        }
+      );
+
+      setSelectedMedia(null);
+    } catch {
+      // Fallback: send as data URL directly
+      sendMessage(
+        chatId,
+        caption,
+        user.id,
+        media.type,
+        media.dataUrl,
+        {
+          isHD,
+          fileSize: media.fileSize,
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          width: media.width,
+          height: media.height,
+        }
+      );
+      setSelectedMedia(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   // Deterministic chatId for 1-on-1 direct conversation
   const chatId = useMemo(() => {
@@ -253,6 +384,18 @@ export default function ChatRoomScreen() {
                 isSent={isSent}
                 timestamp={formatMessageTime(item.createdAt)}
                 status={item.status}
+                type={item.type}
+                mediaUrl={item.mediaUrl}
+                metadata={item.metadata}
+                onMediaPress={(media) => {
+                  setLightboxData({
+                    url: media.url,
+                    type: media.type,
+                    metadata: media.metadata,
+                    senderName: isSent ? 'You' : recipientName,
+                    timestamp: formatMessageTime(item.createdAt),
+                  });
+                }}
               />
             );
           }}
@@ -285,6 +428,26 @@ export default function ChatRoomScreen() {
           },
         ]}
       >
+        {/* Attachment Button for HD Photos & Videos */}
+        <Pressable
+          onPress={() => fileInputRef.current?.click()}
+          style={styles.attachButton}
+          accessibilityRole="button"
+          accessibilityLabel="Attach Photo or Video"
+        >
+          <Ionicons name="attach-outline" size={24} color={theme.textSecondary} />
+        </Pressable>
+
+        {Platform.OS === 'web' && (
+          <input
+            ref={fileInputRef as any}
+            type="file"
+            accept="image/*,video/*,application/pdf"
+            onChange={handleFileSelected}
+            style={{ display: 'none' }}
+          />
+        )}
+
         <TextInputField
           placeholder="Type a message..."
           value={inputText}
@@ -302,6 +465,22 @@ export default function ChatRoomScreen() {
           onPress={handleSend}
         />
       </View>
+
+      {/* Media Preview Modal with [ HD ] toggle */}
+      <MediaPreviewModal
+        visible={!!selectedMedia}
+        media={selectedMedia}
+        isUploading={isUploading}
+        onClose={() => setSelectedMedia(null)}
+        onSend={handleSendMedia}
+      />
+
+      {/* Fullscreen HD Media Lightbox */}
+      <MediaLightboxModal
+        visible={!!lightboxData}
+        data={lightboxData}
+        onClose={() => setLightboxData(null)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -371,5 +550,11 @@ const styles = StyleSheet.create({
   },
   textInputField: {
     fontSize: tokens.typography.body.fontSize, // 16px minimum to avoid iOS zoom
+  },
+  attachButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

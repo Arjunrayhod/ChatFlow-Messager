@@ -508,7 +508,8 @@ export class DatabaseService {
     content: string,
     type: MessageType = 'text',
     mediaUrl?: string | null,
-    replyToId?: string | null
+    replyToId?: string | null,
+    metadata?: Record<string, unknown> | null
   ): Promise<ChatMessage> {
     const now = new Date().toISOString();
     const message: ChatMessage = {
@@ -518,7 +519,7 @@ export class DatabaseService {
       type,
       content,
       mediaUrl: mediaUrl || null,
-      metadata: null,
+      metadata: metadata || null,
       status: 'sent',
       replyToId: replyToId || null,
       createdAt: now,
