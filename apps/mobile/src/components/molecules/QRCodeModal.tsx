@@ -219,6 +219,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
   );
 
   // Stop camera stream safely
+  // Stop camera stream safely
   const stopCameraStream = useCallback(() => {
     if (scanLoopRef.current) {
       cancelAnimationFrame(scanLoopRef.current);
@@ -233,21 +234,51 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
       videoRef.current.remove();
       videoRef.current = null;
     }
+    if (typeof document !== 'undefined') {
+      const mount = document.getElementById('chatflow-qr-video-mount');
+      if (mount) {
+        mount.innerHTML = '';
+      }
+    }
     setIsCameraActive(false);
   }, []);
 
   // Camera scanner loop for Web
   const startWebCamera = useCallback(async () => {
-    if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !navigator.mediaDevices) {
-      setCameraError('Camera is not supported on this browser or platform.');
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      setCameraError('Camera is not supported on this platform.');
+      return;
+    }
+
+    if (!navigator || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      // Insecure HTTP origin on LAN (e.g. mobile Chrome accessing http://IP:PORT)
+      setCameraError(
+        'Live stream is restricted by mobile browser on HTTP network. Use the "Take Photo to Scan" button below to scan with your phone camera instantly!'
+      );
       return;
     }
 
     setCameraError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 640 } },
-      });
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: isMobile
+            ? { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+            : { width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+      } catch (err1) {
+        console.warn('[QRCodeModal] Primary constraints failed, falling back to basic video constraint:', err1);
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
+      if (!stream) {
+        throw new Error('No video stream received from camera');
+      }
 
       streamRef.current = stream;
       setIsCameraActive(true);
@@ -256,8 +287,24 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
       video.autoplay = true;
       video.muted = true;
       video.playsInline = true;
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.style.width = '100%';
+      video.style.height = '100%';
+      video.style.objectFit = 'cover';
+      video.style.position = 'absolute';
+      video.style.top = '0';
+      video.style.left = '0';
+      video.style.zIndex = '0';
       video.srcObject = stream;
       videoRef.current = video;
+
+      // Mount video directly inside the visual viewfinder container
+      const mount = document.getElementById('chatflow-qr-video-mount');
+      if (mount) {
+        mount.innerHTML = '';
+        mount.appendChild(video);
+      }
 
       await video.play();
 
@@ -279,7 +326,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
 
           const imageData = ctx.getImageData(0, 0, width, height);
           const code = jsQR(imageData.data, width, height, {
-            inversionAttempts: 'dontInvert',
+            inversionAttempts: 'attemptBoth',
           });
 
           if (code && code.data) {
@@ -298,7 +345,9 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
       scanLoopRef.current = requestAnimationFrame(checkFrame);
     } catch (err: unknown) {
       console.warn('Camera permission denied or unavailable:', err);
-      setCameraError('Camera access was denied or is not available. You can upload an image or test manually.');
+      setCameraError(
+        'Camera live feed unavailable. Tap "Take Photo to Scan" below to scan with your phone camera instantly!'
+      );
       setIsCameraActive(false);
     }
   }, [handleScannedUsername, parseQRPayload, stopCameraStream]);
@@ -316,7 +365,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
     };
   }, [visible, activeTab, scannedUser, startWebCamera, stopCameraStream]);
 
-  // Handle image upload from files / gallery
+  // Handle image upload from files / gallery or native camera snapshot
   const handleFileUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -327,14 +376,42 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
       reader.onload = () => {
         const img = new (window as unknown as { Image: new () => HTMLImageElement }).Image();
         img.onload = () => {
+          // Normalize dimension to max 1200px for speedy processing
+          const maxDim = 1200;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          canvas.width = img.width;
-          canvas.height = img.height;
+          canvas.width = width;
+          canvas.height = height;
           if (ctx) {
-            ctx.drawImage(img, 0, 0, img.width, img.height);
-            const imageData = ctx.getImageData(0, 0, img.width, img.height);
-            const code = jsQR(imageData.data, img.width, img.height);
+            ctx.drawImage(img, 0, 0, width, height);
+            const imageData = ctx.getImageData(0, 0, width, height);
+            let code = jsQR(imageData.data, width, height, {
+              inversionAttempts: 'attemptBoth',
+            });
+
+            // Fallback: try original size if scaled didn't detect
+            if (!code && (img.width !== width || img.height !== height)) {
+              canvas.width = img.width;
+              canvas.height = img.height;
+              ctx.drawImage(img, 0, 0, img.width, img.height);
+              const fullData = ctx.getImageData(0, 0, img.width, img.height);
+              code = jsQR(fullData.data, img.width, img.height, {
+                inversionAttempts: 'attemptBoth',
+              });
+            }
+
             setIsScanningFile(false);
 
             if (code && code.data) {
@@ -343,18 +420,29 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
                 stopCameraStream();
                 void handleScannedUsername(username);
               } else {
-                Alert.alert('Invalid QR Code', 'This QR code is not a valid ChatFlow friend code.');
+                Alert.alert(
+                  'Invalid QR Code',
+                  `Scanned: "${code.data.substring(0, 60)}". This QR code is not a valid ChatFlow friend code.`
+                );
               }
             } else {
-              Alert.alert('No QR Code Found', 'Could not detect a QR code in the selected image.');
+              Alert.alert(
+                'No QR Code Found',
+                'Could not detect a QR code in the captured photo. Please try again with clear lighting and steady focus.'
+              );
             }
           } else {
             setIsScanningFile(false);
           }
         };
+        img.onerror = () => {
+          setIsScanningFile(false);
+          Alert.alert('Error', 'Unable to load the selected image.');
+        };
         img.src = reader.result as string;
       };
       reader.readAsDataURL(file);
+      e.target.value = '';
     },
     [handleScannedUsername, parseQRPayload, stopCameraStream]
   );
@@ -709,11 +797,29 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
               <View style={styles.viewfinderRoot}>
                 {/* Viewfinder Box */}
                 <View style={styles.viewfinderBox}>
+                  {/* Web Live Video Mount */}
+                  {Platform.OS === 'web' && (
+                    <div
+                      id="chatflow-qr-video-mount"
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        overflow: 'hidden',
+                        borderRadius: tokens.radii.md,
+                        zIndex: 0,
+                        backgroundColor: '#000000',
+                      }}
+                    />
+                  )}
+
                   {/* Corner Brackets */}
-                  <View style={[styles.corner, styles.cornerTL, { borderColor: theme.secondary }]} />
-                  <View style={[styles.corner, styles.cornerTR, { borderColor: theme.secondary }]} />
-                  <View style={[styles.corner, styles.cornerBL, { borderColor: theme.secondary }]} />
-                  <View style={[styles.corner, styles.cornerBR, { borderColor: theme.secondary }]} />
+                  <View style={[styles.corner, styles.cornerTL, { borderColor: theme.secondary, zIndex: 2 }]} />
+                  <View style={[styles.corner, styles.cornerTR, { borderColor: theme.secondary, zIndex: 2 }]} />
+                  <View style={[styles.corner, styles.cornerBL, { borderColor: theme.secondary, zIndex: 2 }]} />
+                  <View style={[styles.corner, styles.cornerBR, { borderColor: theme.secondary, zIndex: 2 }]} />
 
                   {/* Animated Sweeping Laser */}
                   <Animated.View
@@ -722,13 +828,14 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
                       {
                         backgroundColor: theme.secondary,
                         transform: [{ translateY }],
+                        zIndex: 2,
                       },
                     ]}
                   />
 
                   {/* Loading or status overlay */}
                   {isLookingUpUser && (
-                    <View style={styles.viewfinderOverlayCenter}>
+                    <View style={[styles.viewfinderOverlayCenter, { zIndex: 3 }]}>
                       <ActivityIndicator size="large" color={theme.secondary} />
                       <Text
                         variant="caption"
@@ -758,41 +865,80 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
                   </Text>
                 )}
 
-                {/* Scanner Helpers: Gallery Upload & Manual Test */}
+                {/* Scanner Helpers: Direct Phone Camera & Gallery Upload */}
                 <View style={styles.bottomControlRow}>
                   {Platform.OS === 'web' && (
-                    <label
-                      style={{
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: theme.surface,
-                        paddingTop: 12,
-                        paddingBottom: 12,
-                        paddingLeft: 20,
-                        paddingRight: 20,
-                        borderRadius: tokens.radii.pill,
-                        borderWidth: 1,
-                        borderColor: theme.divider,
-                      }}
-                    >
-                      <Ionicons
-                        name="image-outline"
-                        size={20}
-                        color={theme.primary}
-                        style={{ marginRight: 8 }}
-                      />
-                      <Text variant="button" colorRole="primary">
-                        {isScanningFile ? 'Scanning File...' : 'Upload QR Image'}
-                      </Text>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFileUpload}
-                        style={{ display: 'none' }}
-                      />
-                    </label>
+                    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+                      {/* 1. Take Photo with Native Phone Camera */}
+                      <label
+                        style={{
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: theme.primary,
+                          paddingTop: 12,
+                          paddingBottom: 12,
+                          paddingLeft: 20,
+                          paddingRight: 20,
+                          borderRadius: tokens.radii.pill,
+                          minHeight: 48,
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                        }}
+                      >
+                        <Ionicons
+                          name="camera"
+                          size={20}
+                          color="#FFFFFF"
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text variant="button" style={{ color: '#FFFFFF', fontWeight: '700' }}>
+                          {isScanningFile ? 'Scanning Photo...' : 'Take Photo to Scan'}
+                        </Text>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handleFileUpload}
+                          style={{ display: 'none' }}
+                        />
+                      </label>
+
+                      {/* 2. Choose Image from Gallery */}
+                      <label
+                        style={{
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: theme.surface,
+                          paddingTop: 12,
+                          paddingBottom: 12,
+                          paddingLeft: 18,
+                          paddingRight: 18,
+                          borderRadius: tokens.radii.pill,
+                          borderWidth: 1,
+                          borderColor: theme.divider,
+                          minHeight: 48,
+                        }}
+                      >
+                        <Ionicons
+                          name="image-outline"
+                          size={19}
+                          color={theme.primary}
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text variant="button" colorRole="primary">
+                          Gallery
+                        </Text>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileUpload}
+                          style={{ display: 'none' }}
+                        />
+                      </label>
+                    </View>
                   )}
                 </View>
 
