@@ -45,15 +45,33 @@ function WebVideoPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    if (videoRef.current) {
-      if (stream) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
-      } else {
-        videoRef.current.srcObject = null;
+    const el = videoRef.current;
+    if (!el) return;
+
+    if (stream) {
+      el.srcObject = stream;
+      el.muted = isMuted;
+      el.defaultMuted = isMuted;
+      el.setAttribute('playsinline', 'true');
+      el.setAttribute('webkit-playsinline', 'true');
+      if (isMuted) {
+        el.setAttribute('muted', 'true');
       }
+
+      const playPromise = el.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('[WebVideoPlayer] video.play() error:', err);
+          if (!isMuted) {
+            el.muted = true;
+            el.play().catch(() => {});
+          }
+        });
+      }
+    } else {
+      el.srcObject = null;
     }
-  }, [stream]);
+  }, [stream, isMuted]);
 
   if (Platform.OS !== 'web') return null;
 
@@ -68,6 +86,7 @@ function WebVideoPlayer({
         height: '100%',
         objectFit: 'cover',
         transform: isMirrored ? 'scaleX(-1)' : 'none',
+        backgroundColor: '#000000',
         ...style,
       }}
     />
@@ -175,22 +194,54 @@ export function ActiveCallModal() {
         {/* Dedicated Web Audio Player for both Voice & Video calls */}
         <WebAudioPlayer stream={remoteStream} />
 
-        {/* VIDEO MODE: Remote Full Screen & Local PIP */}
-        {isVideo && isConnected && remoteStream ? (
+        {/* VIDEO MODE */}
+        {isVideo ? (
           <View style={StyleSheet.absoluteFill}>
-            <WebVideoPlayer stream={remoteStream} isMuted={false} />
-
-            {/* Local PIP Window */}
-            {!isVideoOff && localStream && (
-              <View style={[styles.pipWindow, { top: insets.top + 20 }]}>
-                <WebVideoPlayer
-                  stream={localStream}
-                  isMuted={true}
-                  isMirrored={true}
-                  style={{ borderRadius: tokens.radii.md }}
-                />
+            {/* Main Video View:
+                1. If remote video is available, show remote stream full screen
+                2. If remote video not yet available (e.g. ringing/connecting), show local camera full screen immediately!
+                3. Fallback to Avatar if video is off or unavailable
+            */}
+            {isConnected && remoteStream && remoteStream.getVideoTracks().length > 0 ? (
+              <WebVideoPlayer stream={remoteStream} isMuted={false} />
+            ) : localStream && localStream.getVideoTracks().length > 0 && !isVideoOff ? (
+              <WebVideoPlayer stream={localStream} isMuted={true} isMirrored={true} />
+            ) : (
+              <View style={[styles.audioCenterContainer, { backgroundColor: '#0B141A' }]}>
+                <Avatar uri={partner?.avatarUrl} name={partner?.displayName || 'User'} size="xl" />
+                <Text variant="h1" style={[styles.partnerName, { marginTop: 16 }]} numberOfLines={1}>
+                  {partner?.displayName || 'ChatFlow User'}
+                </Text>
+                <Text variant="caption" style={{ color: tokens.colors.dark.primary, marginTop: 8 }}>
+                  {activeCall.status === 'calling'
+                    ? 'Calling...'
+                    : activeCall.status === 'ringing'
+                    ? 'Ringing...'
+                    : isConnected
+                    ? 'Connecting video...'
+                    : ''}
+                </Text>
               </View>
             )}
+
+            {/* Local PIP Window:
+                Shown when remote video is actively playing so caller can see themselves in the corner
+            */}
+            {isConnected &&
+              remoteStream &&
+              remoteStream.getVideoTracks().length > 0 &&
+              !isVideoOff &&
+              localStream &&
+              localStream.getVideoTracks().length > 0 && (
+                <View style={[styles.pipWindow, { top: insets.top + 20 }]}>
+                  <WebVideoPlayer
+                    stream={localStream}
+                    isMuted={true}
+                    isMirrored={true}
+                    style={{ borderRadius: tokens.radii.md }}
+                  />
+                </View>
+              )}
           </View>
         ) : (
           /* AUDIO MODE / OUTGOING RINGING */
@@ -237,8 +288,6 @@ export function ActiveCallModal() {
                     ? 'alert-circle'
                     : isConnected
                     ? 'lock-closed'
-                    : isVideo
-                    ? 'videocam'
                     : 'call'
                 }
                 size={14}
@@ -272,14 +321,20 @@ export function ActiveCallModal() {
         )}
 
         {/* Top Header Overlay for Video Call */}
-        {isVideo && isConnected && (
+        {isVideo && (
           <View style={[styles.videoTopHeader, { top: insets.top + 16 }]}>
             <View style={styles.videoTopInfo}>
               <Text variant="body" style={styles.videoPartnerName}>
-                {partner.displayName}
+                {partner?.displayName || 'ChatFlow User'}
               </Text>
               <Text variant="caption" style={styles.videoDurationText}>
-                {formatDuration(callDuration)}
+                {isConnected
+                  ? formatDuration(callDuration)
+                  : activeCall.status === 'calling'
+                  ? 'Calling...'
+                  : activeCall.status === 'ringing'
+                  ? 'Ringing...'
+                  : 'Connecting...'}
               </Text>
             </View>
           </View>

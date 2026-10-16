@@ -51,58 +51,88 @@ export class WebRTCService {
     }
 
     try {
-      // Release any lingering streams before requesting fresh device handles
       this.stopLocalMedia();
 
-      const constraints: MediaStreamConstraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video:
-          type === 'video'
-            ? {
-                facingMode: this.currentFacing,
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              }
-            : false,
-      };
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
 
+      // On mobile use facingMode; on desktop PC NEVER use facingMode because Windows/PC webcams do not have it!
+      const videoConstraints: MediaTrackConstraints | boolean =
+        type === 'video'
+          ? isMobile
+            ? { facingMode: this.currentFacing }
+            : { width: { ideal: 1280 }, height: { ideal: 720 } }
+          : false;
+
+      let stream: MediaStream | null = null;
+
+      // Tier 1: Try combined audio + video with standard constraints
       try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: videoConstraints,
+        });
+      } catch (tier1Err) {
+        console.warn('[WebRTCService] Tier 1 getUserMedia failed, trying relaxed constraints:', tier1Err);
+
+        // Tier 2: Try basic boolean constraints { audio: true, video: true }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: type === 'video',
+          });
+        } catch (tier2Err) {
+          console.warn('[WebRTCService] Tier 2 getUserMedia failed, attempting split track acquisition:', tier2Err);
+
+          // Tier 3: Acquire audio track and video track independently (e.g. if one device fails constraints)
+          let audioTrack: MediaStreamTrack | null = null;
+          let videoTrack: MediaStreamTrack | null = null;
+
+          try {
+            const aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioTrack = aStream.getAudioTracks()[0] || null;
+          } catch (aErr) {
+            console.warn('[WebRTCService] Audio capture failed:', aErr);
+          }
+
+          if (type === 'video') {
+            try {
+              const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+              videoTrack = vStream.getVideoTracks()[0] || null;
+            } catch (vErr) {
+              console.warn('[WebRTCService] Video capture failed:', vErr);
+            }
+          }
+
+          const combinedTracks: MediaStreamTrack[] = [];
+          if (audioTrack) combinedTracks.push(audioTrack);
+          if (videoTrack) combinedTracks.push(videoTrack);
+
+          if (combinedTracks.length > 0) {
+            stream = new MediaStream(combinedTracks);
+          }
+        }
+      }
+
+      if (stream) {
         stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+        stream.getVideoTracks().forEach((track) => {
           track.enabled = true;
         });
         this.localStream = stream;
         return stream;
-      } catch (advancedErr) {
-        console.warn('[WebRTCService] Advanced getUserMedia failed, trying relaxed constraints:', advancedErr);
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: type === 'video',
-        });
-        fallbackStream.getAudioTracks().forEach((track) => {
-          track.enabled = true;
-        });
-        this.localStream = fallbackStream;
-        return fallbackStream;
       }
+
+      return null;
     } catch (err) {
-      console.warn('[WebRTCService] getUserMedia completely failed or permission denied:', err);
-      if (type === 'video') {
-        try {
-          const audioOnlyStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          audioOnlyStream.getAudioTracks().forEach((track) => {
-            track.enabled = true;
-          });
-          this.localStream = audioOnlyStream;
-          return audioOnlyStream;
-        } catch {
-          return null;
-        }
-      }
+      console.warn('[WebRTCService] getLocalMedia completely failed:', err);
       return null;
     }
   }

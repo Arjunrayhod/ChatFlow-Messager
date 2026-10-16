@@ -73,6 +73,7 @@ export default function ChatRoomScreen() {
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // HD Media States
   const [selectedMedia, setSelectedMedia] = useState<SelectedMediaFile | null>(null);
@@ -396,19 +397,9 @@ export default function ChatRoomScreen() {
                 name="camera-outline"
                 size="md"
                 color={theme.textInverse}
-                accessibilityLabel="Simulate Screenshot Alert"
+                accessibilityLabel="Take Photo with Camera"
                 onPress={() => {
-                  if (user) {
-                    const socket = getSocket();
-                    socket?.emit('screenshot_alert', {
-                      targetType: 'chat',
-                      targetId: chatId,
-                      ownerId: recipientId,
-                      takerUserId: user.id,
-                      takerUsername: user.username,
-                      takerDisplayName: user.displayName,
-                    });
-                  }
+                  cameraInputRef.current?.click();
                 }}
               />
             </View>
@@ -553,14 +544,34 @@ export default function ChatRoomScreen() {
           <Ionicons name="attach-outline" size={24} color={theme.textSecondary} />
         </Pressable>
 
+        {/* Camera Button: Directly opens phone camera viewfinder */}
+        <Pressable
+          onPress={() => cameraInputRef.current?.click()}
+          style={styles.attachButton}
+          accessibilityRole="button"
+          accessibilityLabel="Take Photo with Camera"
+        >
+          <Ionicons name="camera-outline" size={24} color={theme.textSecondary} />
+        </Pressable>
+
         {Platform.OS === 'web' && (
-          <input
-            ref={fileInputRef as any}
-            type="file"
-            accept="image/*,video/*,application/pdf"
-            onChange={handleFileSelected}
-            style={{ display: 'none' }}
-          />
+          <>
+            <input
+              ref={fileInputRef as any}
+              type="file"
+              accept="image/*,video/*,application/pdf"
+              onChange={handleFileSelected}
+              style={{ display: 'none' }}
+            />
+            <input
+              ref={cameraInputRef as any}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileSelected}
+              style={{ display: 'none' }}
+            />
+          </>
         )}
 
         <TextInputField

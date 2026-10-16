@@ -75,11 +75,16 @@ export const CreateStatusModal: React.FC<CreateStatusModalProps> = ({
     setPaletteIndex((prev) => (prev + 1) % BG_PALETTES.length);
   };
 
-  const handlePickMedia = () => {
+  const handlePickMedia = (useCamera = false) => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = 'image/*,video/*';
+      if (useCamera) {
+        input.accept = 'image/*';
+        input.setAttribute('capture', 'environment');
+      } else {
+        input.accept = 'image/*,video/*';
+      }
       input.onchange = (e) => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (file) {
@@ -214,7 +219,7 @@ export const CreateStatusModal: React.FC<CreateStatusModalProps> = ({
             </Pressable>
           ) : (
             <Pressable
-              onPress={handlePickMedia}
+              onPress={() => handlePickMedia(false)}
               style={({ pressed }) => [
                 styles.iconBtn,
                 { opacity: pressed ? 0.7 : 1 },
@@ -249,18 +254,51 @@ export const CreateStatusModal: React.FC<CreateStatusModalProps> = ({
                 resizeMode="contain"
               />
             ) : (
-              <Pressable
-                onPress={handlePickMedia}
-                style={styles.pickMediaPlaceholder}
-              >
-                <Ionicons name="camera-outline" size={56} color="rgba(255,255,255,0.6)" />
-                <Text variant="bodyMedium" style={{ color: '#FFFFFF', marginTop: 12 }}>
-                  Tap to select Photo or Video
-                </Text>
-                <Text variant="caption" style={{ color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
+              <View style={styles.pickMediaPlaceholder}>
+                <View style={{ flexDirection: 'row', gap: 24, marginBottom: 16 }}>
+                  <Pressable
+                    onPress={() => handlePickMedia(true)}
+                    style={({ pressed }) => [
+                      {
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                        padding: 18,
+                        borderRadius: 16,
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="camera" size={36} color={tokens.colors.dark.primary} />
+                    <Text variant="caption" style={{ color: '#FFFFFF', marginTop: 8, fontWeight: '600' }}>
+                      Take Photo
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => handlePickMedia(false)}
+                    style={({ pressed }) => [
+                      {
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                        padding: 18,
+                        borderRadius: 16,
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="images" size={36} color={tokens.colors.dark.primary} />
+                    <Text variant="caption" style={{ color: '#FFFFFF', marginTop: 8, fontWeight: '600' }}>
+                      Gallery / Files
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <Text variant="caption" style={{ color: 'rgba(255,255,255,0.6)' }}>
                   Original uncompressed HD resolution
                 </Text>
-              </Pressable>
+              </View>
             )}
 
             {mediaData && (
