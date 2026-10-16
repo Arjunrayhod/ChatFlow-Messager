@@ -297,25 +297,41 @@ export function initSocketServer(
     // =========================================================================
 
     // A. Initiate Call (Sender sends offer)
+    // A. Initiate Call (Sender sends offer)
     socket.on('call_initiate', async ({ callId, receiverId, type, sdp }) => {
       try {
-        const callerUser = await db.findUserById(userId);
-        const receiverUser = await db.findUserById(receiverId);
+        let callerUser = await db.findUserById(userId);
+        if (!callerUser) {
+          callerUser = await db.findUserByFirebaseUid(userId);
+        }
+        let receiverUser = await db.findUserById(receiverId);
+        if (!receiverUser) {
+          receiverUser = await db.findUserByUsername(receiverId);
+        }
 
+        const effectiveCallerId = callerUser ? callerUser.id : userId;
         const callerInfo: CallParticipant = {
-          id: userId,
+          id: effectiveCallerId,
           username: callerUser?.username || username,
           displayName: callerUser?.displayName || username,
           avatarUrl: callerUser?.avatarUrl || undefined,
         };
 
+        // Upgrade caller socket identity in memory and join canonical user rooms
+        if (callerUser) {
+          socket.data.userId = callerUser.id;
+          socket.data.username = callerUser.username;
+          void socket.join(`user_${callerUser.id}`);
+          void socket.join(`user_${callerUser.username}`);
+        }
+
         const newCall: CallRecord = {
           id: callId,
-          callerId: userId,
+          callerId: effectiveCallerId,
           callerUsername: callerInfo.username,
           callerDisplayName: callerInfo.displayName,
           callerAvatarUrl: callerInfo.avatarUrl,
-          receiverId,
+          receiverId: receiverUser ? receiverUser.id : receiverId,
           receiverUsername: receiverUser?.username || 'user',
           receiverDisplayName: receiverUser?.displayName || 'User',
           receiverAvatarUrl: receiverUser?.avatarUrl || undefined,
@@ -330,32 +346,30 @@ export function initSocketServer(
         // Acknowledge caller that ringing has started
         socket.emit('call_ringing', { callId, receiverId });
 
-        // Relay incoming call offer to receiver's private room
+        // Relay incoming call offer to receiver's private rooms using chained .to() for socket deduplication
         const targetRoom = `user_${receiverId}`;
         const roomSockets = io.sockets.adapter.rooms.get(targetRoom);
         const clientCount = roomSockets ? roomSockets.size : 0;
 
         logger.info(
-          { callId, callerId: userId, receiverId, targetRoom, clientCount, type },
+          { callId, callerId: effectiveCallerId, receiverId, targetRoom, clientCount, type },
           `Call initiated: ${callerInfo.username} calling ${receiverUser?.username || receiverId} (${clientCount} active receiver sockets)`
         );
 
-        io.to(targetRoom).emit('incoming_call', {
+        let emitter = io.to(targetRoom);
+        if (receiverUser?.username && `user_${receiverUser.username}` !== targetRoom) {
+          emitter = emitter.to(`user_${receiverUser.username}`);
+        }
+        if (receiverUser?.id && `user_${receiverUser.id}` !== targetRoom) {
+          emitter = emitter.to(`user_${receiverUser.id}`);
+        }
+
+        emitter.emit('incoming_call', {
           callId,
           caller: callerInfo,
           type,
           sdp,
         });
-
-        // Dual-emission: also emit to user_${receiverUser.username} if distinct
-        if (receiverUser?.username && `user_${receiverUser.username}` !== targetRoom) {
-          io.to(`user_${receiverUser.username}`).emit('incoming_call', {
-            callId,
-            caller: callerInfo,
-            type,
-            sdp,
-          });
-        }
       } catch (err) {
         logger.error({ err, callId }, 'Failed to initiate call');
       }
@@ -364,9 +378,13 @@ export function initSocketServer(
     // B. Answer Call (Receiver accepts offer with answer SDP)
     socket.on('call_answer', async ({ callId, callerId, sdp }) => {
       try {
-        const responderUser = await db.findUserById(userId);
+        let responderUser = await db.findUserById(userId);
+        if (!responderUser) {
+          responderUser = await db.findUserByFirebaseUid(userId);
+        }
+        const effectiveResponderId = responderUser ? responderUser.id : userId;
         const responder: CallParticipant = {
-          id: userId,
+          id: effectiveResponderId,
           username: responderUser?.username || username,
           displayName: responderUser?.displayName || username,
           avatarUrl: responderUser?.avatarUrl || undefined,
@@ -377,24 +395,23 @@ export function initSocketServer(
           answeredAt: new Date().toISOString(),
         });
 
-        // Relay answer SDP to caller's private room
-        const callerRoom = `user_${callerId}`;
-        io.to(callerRoom).emit('call_accepted', {
+        const callerUser = (await db.findUserById(callerId)) || (await db.findUserByFirebaseUid(callerId));
+
+        let callerEmitter = io.to(`user_${callerId}`);
+        if (callerUser?.username && `user_${callerUser.username}` !== `user_${callerId}`) {
+          callerEmitter = callerEmitter.to(`user_${callerUser.username}`);
+        }
+        if (callerUser?.id && `user_${callerUser.id}` !== `user_${callerId}`) {
+          callerEmitter = callerEmitter.to(`user_${callerUser.id}`);
+        }
+
+        callerEmitter.emit('call_accepted', {
           callId,
           responder,
           sdp,
         });
 
-        const callerUser = await db.findUserById(callerId);
-        if (callerUser?.username && `user_${callerUser.username}` !== callerRoom) {
-          io.to(`user_${callerUser.username}`).emit('call_accepted', {
-            callId,
-            responder,
-            sdp,
-          });
-        }
-
-        logger.info({ callId, callerId, responderId: userId }, `Call answered & connected`);
+        logger.info({ callId, callerId, responderId: effectiveResponderId }, `Call answered & connected`);
       } catch (err) {
         logger.error({ err, callId }, 'Failed to answer call');
       }
@@ -408,19 +425,20 @@ export function initSocketServer(
           endedAt: new Date().toISOString(),
         });
 
-        const callerRoom = `user_${callerId}`;
-        io.to(callerRoom).emit('call_rejected', {
+        const callerUser = (await db.findUserById(callerId)) || (await db.findUserByFirebaseUid(callerId));
+
+        let rejectEmitter = io.to(`user_${callerId}`);
+        if (callerUser?.username && `user_${callerUser.username}` !== `user_${callerId}`) {
+          rejectEmitter = rejectEmitter.to(`user_${callerUser.username}`);
+        }
+        if (callerUser?.id && `user_${callerUser.id}` !== `user_${callerId}`) {
+          rejectEmitter = rejectEmitter.to(`user_${callerUser.id}`);
+        }
+
+        rejectEmitter.emit('call_rejected', {
           callId,
           reason: reason || 'Call declined',
         });
-
-        const callerUser = await db.findUserById(callerId);
-        if (callerUser?.username && `user_${callerUser.username}` !== callerRoom) {
-          io.to(`user_${callerUser.username}`).emit('call_rejected', {
-            callId,
-            reason: reason || 'Call declined',
-          });
-        }
 
         logger.info({ callId, callerId, rejectedBy: userId }, `Call rejected`);
       } catch (err) {
@@ -429,22 +447,20 @@ export function initSocketServer(
     });
 
     // D. ICE Candidate Exchange
-    socket.on('call_ice_candidate', ({ callId, targetUserId, candidate }) => {
-      const targetRoom = `user_${targetUserId}`;
-      io.to(targetRoom).emit('call_ice_candidate', {
+    socket.on('call_ice_candidate', async ({ callId, targetUserId, candidate }) => {
+      const targetUser = (await db.findUserById(targetUserId)) || (await db.findUserByFirebaseUid(targetUserId));
+      let candidateEmitter = io.to(`user_${targetUserId}`);
+      if (targetUser?.username && `user_${targetUser.username}` !== `user_${targetUserId}`) {
+        candidateEmitter = candidateEmitter.to(`user_${targetUser.username}`);
+      }
+      if (targetUser?.id && `user_${targetUser.id}` !== `user_${targetUserId}`) {
+        candidateEmitter = candidateEmitter.to(`user_${targetUser.id}`);
+      }
+
+      candidateEmitter.emit('call_ice_candidate', {
         callId,
         senderUserId: userId,
         candidate,
-      });
-
-      void db.findUserById(targetUserId).then((targetUser) => {
-        if (targetUser?.username && `user_${targetUser.username}` !== targetRoom) {
-          io.to(`user_${targetUser.username}`).emit('call_ice_candidate', {
-            callId,
-            senderUserId: userId,
-            candidate,
-          });
-        }
       });
     });
 
@@ -466,23 +482,21 @@ export function initSocketServer(
           durationSeconds: finalDuration,
         });
 
-        const targetRoom = `user_${targetUserId}`;
-        io.to(targetRoom).emit('call_ended', {
+        const targetUser = (await db.findUserById(targetUserId)) || (await db.findUserByFirebaseUid(targetUserId));
+        let endEmitter = io.to(`user_${targetUserId}`);
+        if (targetUser?.username && `user_${targetUser.username}` !== `user_${targetUserId}`) {
+          endEmitter = endEmitter.to(`user_${targetUser.username}`);
+        }
+        if (targetUser?.id && `user_${targetUser.id}` !== `user_${targetUserId}`) {
+          endEmitter = endEmitter.to(`user_${targetUser.id}`);
+        }
+
+        endEmitter.emit('call_ended', {
           callId,
           peerUserId: userId,
           reason: reason || 'Call ended',
           durationSeconds: finalDuration,
         });
-
-        const targetUser = await db.findUserById(targetUserId);
-        if (targetUser?.username && `user_${targetUser.username}` !== targetRoom) {
-          io.to(`user_${targetUser.username}`).emit('call_ended', {
-            callId,
-            peerUserId: userId,
-            reason: reason || 'Call ended',
-            durationSeconds: finalDuration,
-          });
-        }
 
         logger.info({ callId, userId, targetUserId, finalDuration }, `Call ended`);
       } catch (err) {

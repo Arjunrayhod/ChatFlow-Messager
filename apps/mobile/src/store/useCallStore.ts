@@ -100,10 +100,17 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
     // A. Incoming Call Notification
     socket.on('incoming_call', (payload) => {
-      console.log('[useCallStore] incoming_call received from caller:', payload.caller?.displayName || payload.caller?.username);
+      console.log('[useCallStore] incoming_call received from caller:', payload.caller?.displayName || payload.caller?.username, payload);
       const { activeCall } = get();
+
+      // If we already received this exact call, ignore duplicate event
+      if (activeCall && activeCall.callId === payload.callId) {
+        console.log('[useCallStore] Ignoring duplicate incoming_call packet for same callId:', payload.callId);
+        return;
+      }
+
       if (activeCall && activeCall.status !== 'idle' && activeCall.status !== 'ended') {
-        // User is currently busy on another call
+        // User is currently busy on another DIFFERENT call
         console.warn('[useCallStore] User is busy on another call, rejecting incoming call');
         emitCallReject(payload.callId, payload.caller.id, 'User is busy on another call');
         return;
@@ -165,19 +172,32 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     });
 
     // D. Remote Peer Declined Call
-    socket.on('call_rejected', () => {
+    socket.on('call_rejected', (payload?: { callId?: string; reason?: string }) => {
+      console.log('[useCallStore] call_rejected received:', payload);
+      const { activeCall } = get();
+      if (!activeCall) return;
+
+      // Verify that this rejection matches the active call
+      if (payload?.callId && activeCall.callId !== payload.callId) {
+        console.log('[useCallStore] Ignoring call_rejected for mismatched callId');
+        return;
+      }
+
+      // If call is already connected, DO NOT drop the call due to a stale rejection packet!
+      if (activeCall.status === 'connected') {
+        console.warn('[useCallStore] Ignoring stale call_rejected because call is already connected');
+        return;
+      }
+
       ringtoneService.stopAll();
       ringtoneService.playCallEndedTone();
 
-      const { activeCall } = get();
-      if (activeCall) {
-        set({
-          activeCall: {
-            ...activeCall,
-            status: 'rejected',
-          },
-        });
-      }
+      set({
+        activeCall: {
+          ...activeCall,
+          status: 'rejected',
+        },
+      });
 
       setTimeout(() => {
         webrtcService.destroy();
@@ -199,7 +219,17 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     });
 
     // F. Call Ended by Peer
-    socket.on('call_ended', () => {
+    socket.on('call_ended', (payload?: { callId?: string; reason?: string }) => {
+      console.log('[useCallStore] call_ended received:', payload);
+      const { activeCall } = get();
+      if (!activeCall) return;
+
+      // Verify that this termination matches the active call
+      if (payload?.callId && activeCall.callId !== payload.callId) {
+        console.log('[useCallStore] Ignoring call_ended for mismatched callId');
+        return;
+      }
+
       if (timerInterval) {
         clearInterval(timerInterval);
         timerInterval = null;
@@ -208,15 +238,12 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       ringtoneService.stopAll();
       ringtoneService.playCallEndedTone();
 
-      const { activeCall } = get();
-      if (activeCall) {
-        set({
-          activeCall: {
-            ...activeCall,
-            status: 'ended',
-          },
-        });
-      }
+      set({
+        activeCall: {
+          ...activeCall,
+          status: 'ended',
+        },
+      });
 
       setTimeout(() => {
         webrtcService.destroy();
