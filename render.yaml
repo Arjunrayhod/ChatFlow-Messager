@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: chatflow-backend
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: pnpm install && pnpm --filter @chatflow/shared build && pnpm --filter @chatflow/server build
+    startCommand: node apps/server/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        value: "*"
