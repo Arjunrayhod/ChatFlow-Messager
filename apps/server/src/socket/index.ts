@@ -160,9 +160,17 @@ export function initSocketServer(
     // 3. Send Message
     socket.on('send_message', async ({ chatId, clientTempId, type, content, mediaUrl, replyToId, metadata }) => {
       try {
+        let senderUser = (await db.findUserById(userId)) || (await db.findUserByFirebaseUid(userId));
+        const effectiveSenderId = senderUser ? senderUser.id : userId;
+
+        if (senderUser) {
+          socket.data.userId = senderUser.id;
+          socket.data.username = senderUser.username;
+        }
+
         const message: ChatMessage = await db.saveMessage(
           chatId,
-          userId,
+          effectiveSenderId,
           content,
           type,
           mediaUrl,
@@ -178,18 +186,17 @@ export function initSocketServer(
 
         // Ensure both participants have each other in their inbox contacts
         const participants = chatId.split('_');
-        const recipientId = participants.find((id) => id !== userId);
+        const recipientId = participants.find((id) => id !== effectiveSenderId && id !== userId);
         if (recipientId) {
-          const recipientUser = await db.findUserById(recipientId);
-          const senderUser = await db.findUserById(userId);
+          const recipientUser = (await db.findUserById(recipientId)) || (await db.findUserByFirebaseUid(recipientId));
           if (recipientUser && senderUser) {
-            const hasSender = await db.hasContact(userId, recipientId);
+            const hasSender = await db.hasContact(effectiveSenderId, recipientUser.id);
             if (!hasSender) {
-              await db.addContact(userId, recipientUser);
+              await db.addContact(effectiveSenderId, recipientUser);
             }
-            const hasRecipient = await db.hasContact(recipientId, userId);
+            const hasRecipient = await db.hasContact(recipientUser.id, effectiveSenderId);
             if (!hasRecipient) {
-              await db.addContact(recipientId, senderUser);
+              await db.addContact(recipientUser.id, senderUser);
             }
           }
         }

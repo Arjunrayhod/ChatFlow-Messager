@@ -24,6 +24,7 @@ export interface MessageBubbleProps {
   content: string;
   isSent: boolean;
   timestamp: string;
+  senderName?: string;
   status?: MessageDeliveryStatus;
   type?: MessageType;
   mediaUrl?: string | null;
@@ -42,6 +43,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   content,
   isSent,
   timestamp,
+  senderName,
   status = 'sent',
   type = 'text',
   mediaUrl,
@@ -86,6 +88,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   const isMedia = (type === 'image' || type === 'video' || type === 'document') && !!resolvedMediaUrl;
 
+  const sentBubbleBg = colorScheme === 'dark' ? '#005C4B' : '#D9FDD3';
+  const receivedBubbleBg = colorScheme === 'dark' ? '#1F2C34' : '#FFFFFF';
+
   return (
     <View style={[styles.row, isSent ? styles.sentRow : styles.receivedRow]}>
       <View
@@ -93,15 +98,36 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           styles.bubble,
           isMedia && styles.mediaBubble,
           {
-            backgroundColor: isSent ? theme.bubbleSent : theme.bubbleReceived,
-            borderBottomRightRadius: isSent ? tokens.radii.sm : tokens.radii.lg,
-            borderBottomLeftRadius: isSent ? tokens.radii.lg : tokens.radii.sm,
-            borderColor: isSent ? 'transparent' : theme.divider,
+            backgroundColor: isSent ? sentBubbleBg : receivedBubbleBg,
+            borderTopRightRadius: isSent ? 2 : 12,
+            borderTopLeftRadius: isSent ? 12 : 2,
+            borderBottomRightRadius: 12,
+            borderBottomLeftRadius: 12,
+            borderColor: isSent ? 'transparent' : (colorScheme === 'dark' ? '#26353D' : '#E2E8F0'),
             borderWidth: isSent ? 0 : 0.5,
-            ...tokens.elevation[1],
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.12,
+            shadowRadius: 1.5,
+            elevation: 1,
           },
         ]}
       >
+        {/* SENDER LABEL (For received messages) */}
+        {!isSent && !!senderName && (
+          <Text
+            variant="caption"
+            style={{
+              color: colorScheme === 'dark' ? '#25D366' : '#008069',
+              fontWeight: '700',
+              fontSize: 12,
+              marginBottom: 3,
+            }}
+          >
+            {senderName}
+          </Text>
+        )}
+
         {/* IMAGE MESSAGE */}
         {type === 'image' && resolvedMediaUrl && (
           <Pressable

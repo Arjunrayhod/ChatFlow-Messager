@@ -39,7 +39,21 @@ messagesRouter.get(
     }
 
     const messages = await db.getMessages(chatId, 100);
-    res.status(200).json(createSuccessResponse(messages));
+
+    // Normalize legacy senderIds (dev UIDs or email keys) to canonical user IDs
+    const normalizedMessages = await Promise.all(
+      messages.map(async (msg) => {
+        if (msg.senderId.includes('@') || msg.senderId.startsWith('google_')) {
+          const user = await db.findUserByFirebaseUid(msg.senderId);
+          if (user) {
+            return { ...msg, senderId: user.id };
+          }
+        }
+        return msg;
+      })
+    );
+
+    res.status(200).json(createSuccessResponse(normalizedMessages));
   }
 );
 

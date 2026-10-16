@@ -331,7 +331,10 @@ export default function ChatRoomScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={[
+        styles.container,
+        { backgroundColor: colorScheme === 'dark' ? '#0B141A' : '#EFEAE2' },
+      ]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
@@ -443,13 +446,26 @@ export default function ChatRoomScreen() {
               style={[
                 styles.encryptionBanner,
                 {
-                  backgroundColor: theme.surfaceEmphasized,
+                  backgroundColor: colorScheme === 'dark' ? '#182229' : '#FFEECD',
                   borderRadius: tokens.radii.md,
+                  borderWidth: 0.5,
+                  borderColor: colorScheme === 'dark' ? '#2A3942' : '#FFE08A',
                 },
               ]}
             >
-              <Ionicons name="lock-closed" size={14} color={theme.textSecondary} />
-              <Text variant="caption" colorRole="secondary" align="center">
+              <Ionicons
+                name="lock-closed"
+                size={13}
+                color={colorScheme === 'dark' ? '#FFD279' : '#856404'}
+              />
+              <Text
+                variant="caption"
+                style={{
+                  color: colorScheme === 'dark' ? '#FFD279' : '#664D03',
+                  fontSize: 11,
+                  textAlign: 'center',
+                }}
+              >
                 Messages are private, end-to-end secured, and anchored to @{params.username || 'username'}. No phone numbers are involved.
               </Text>
             </View>
@@ -466,12 +482,21 @@ export default function ChatRoomScreen() {
             </View>
           }
           renderItem={({ item }) => {
-            const isSent = item.senderId === user?.id;
+            const cleanRecipientUser = (params.username || '').replace(/^@/, '');
+
+            // Robust multi-identifier matching for sender vs receiver
+            const isSent =
+              (Boolean(user?.id) && item.senderId === user?.id) ||
+              (Boolean(user?.username) && item.senderId === user?.username) ||
+              (Boolean((user as any)?.firebaseUid) && item.senderId === (user as any)?.firebaseUid) ||
+              (item.senderId !== recipientId && item.senderId !== cleanRecipientUser);
+
             return (
               <MessageBubble
                 id={item.id}
                 content={item.content}
                 isSent={isSent}
+                senderName={isSent ? undefined : recipientName}
                 timestamp={formatMessageTime(item.createdAt)}
                 status={item.status}
                 type={item.type}
