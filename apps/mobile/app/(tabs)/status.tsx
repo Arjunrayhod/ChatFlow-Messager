@@ -127,11 +127,6 @@ export default function StatusScreen() {
             hasStories={hasMyStories}
             hasUnseen={hasMyStories}
             showAddBadge={!hasMyStories}
-            onPress={openMyStatus}
-            onAddPress={() => {
-              setCreatorMode('media');
-              setIsCreatorOpen(true);
-            }}
           />
 
           <View style={styles.textCol}>
@@ -184,7 +179,6 @@ export default function StatusScreen() {
                   size="md"
                   hasStories={true}
                   hasUnseen={true}
-                  onPress={() => openContactStory(group)}
                 />
 
                 <View style={styles.textCol}>
@@ -227,7 +221,6 @@ export default function StatusScreen() {
                   size="md"
                   hasStories={true}
                   hasUnseen={false}
-                  onPress={() => openContactStory(group)}
                 />
 
                 <View style={styles.textCol}>

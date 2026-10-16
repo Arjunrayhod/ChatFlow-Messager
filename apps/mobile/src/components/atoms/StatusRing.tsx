@@ -47,48 +47,54 @@ export const StatusRing: React.FC<StatusRingProps> = ({
       : theme.textDisabled // Gray for already viewed
     : 'transparent';
 
-  return (
-    <View style={styles.container}>
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.pressable,
-          { opacity: pressed ? 0.8 : 1 },
+  const ringContent = (
+    <View style={styles.pressable}>
+      <View
+        style={[
+          styles.ringWrapper,
+          hasStories && {
+            borderColor: ringColor,
+            borderWidth: 2.5,
+            padding: 2,
+          },
         ]}
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel || `${name}'s story`}
       >
+        <Avatar name={name} uri={avatarUri} size={size} />
+      </View>
+
+      {showAddBadge && (
         <View
           style={[
-            styles.ringWrapper,
-            hasStories && {
-              borderColor: ringColor,
-              borderWidth: 2.5,
-              padding: 2,
+            styles.addBadge,
+            {
+              backgroundColor: theme.primary,
+              borderColor: theme.background,
             },
           ]}
+          pointerEvents="none"
         >
-          <Avatar name={name} uri={avatarUri} size={size} />
+          <Ionicons name="add" size={14} color={theme.textInverse} />
         </View>
+      )}
+    </View>
+  );
 
-        {showAddBadge && (
-          <Pressable
-            onPress={onAddPress || onPress}
-            style={({ pressed }) => [
-              styles.addBadge,
-              {
-                backgroundColor: theme.primary,
-                borderColor: theme.background,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Add to my status"
-          >
-            <Ionicons name="add" size={14} color={theme.textInverse} />
-          </Pressable>
-        )}
-      </Pressable>
+  return (
+    <View style={styles.container}>
+      {onPress ? (
+        <Pressable
+          onPress={onPress}
+          style={({ pressed }) => [
+            { opacity: pressed ? 0.8 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel || `${name}'s story`}
+        >
+          {ringContent}
+        </Pressable>
+      ) : (
+        ringContent
+      )}
     </View>
   );
 };
