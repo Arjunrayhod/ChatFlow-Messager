@@ -71,7 +71,6 @@ export interface CallStoreState {
 }
 
 let timerInterval: any = null;
-let listenersInitialized = false;
 
 export const useCallStore = create<CallStoreState>((set, get) => ({
   activeCall: null,
@@ -88,16 +87,24 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
    * Initializes real-time Socket.IO signaling event listeners.
    */
   initCallListeners: (token: string) => {
-    if (listenersInitialized) return;
     const socket = connectSocket(token);
     if (!socket) return;
-    listenersInitialized = true;
+
+    // Prevent duplicate listener registration on the same socket instance
+    if ((socket as any).__chatflowCallListenersRegistered) {
+      return;
+    }
+    (socket as any).__chatflowCallListenersRegistered = true;
+
+    console.log('[useCallStore] Registering WebRTC call listeners on socket');
 
     // A. Incoming Call Notification
     socket.on('incoming_call', (payload) => {
+      console.log('[useCallStore] incoming_call received from caller:', payload.caller?.displayName || payload.caller?.username);
       const { activeCall } = get();
       if (activeCall && activeCall.status !== 'idle' && activeCall.status !== 'ended') {
         // User is currently busy on another call
+        console.warn('[useCallStore] User is busy on another call, rejecting incoming call');
         emitCallReject(payload.callId, payload.caller.id, 'User is busy on another call');
         return;
       }
@@ -119,6 +126,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
     // B. Call Ringing on Remote Device
     socket.on('call_ringing', () => {
+      console.log('[useCallStore] Remote device is ringing');
       const { activeCall } = get();
       if (activeCall && activeCall.direction === 'outgoing') {
         set({
@@ -132,6 +140,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
     // C. Remote Peer Accepted Call
     socket.on('call_accepted', async (payload) => {
+      console.log('[useCallStore] Remote peer accepted call:', payload);
       const { activeCall } = get();
       if (!activeCall || activeCall.callId !== payload.callId) return;
 

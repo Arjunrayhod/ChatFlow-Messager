@@ -36,32 +36,54 @@ let currentConnectedToken: string | null = null;
 
 /**
  * Initializes and connects client socket with bearer token.
+ * Reuses existing socket if token is unchanged to prevent disconnecting active listeners.
  */
-export function connectSocket(token: string): TypedSocket {
-  if (socketInstance) {
-    if (socketInstance.connected && currentConnectedToken === token) {
-      return socketInstance;
+export function connectSocket(token: string, explicitUserId?: string): TypedSocket {
+  // If socket already exists for this exact token, reuse it!
+  if (socketInstance && currentConnectedToken === token) {
+    if (socketInstance.disconnected) {
+      socketInstance.connect();
     }
-    // Token changed or instance stale: disconnect old socket
+    return socketInstance;
+  }
+
+  // If token changed or socket doesn't exist, cleanly disconnect old socket
+  if (socketInstance) {
     socketInstance.disconnect();
     socketInstance = null;
   }
 
+  // Retrieve cached user profile ID for socket handshake
+  let userId = explicitUserId;
+  let username: string | undefined;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem('chatflow_auth');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        userId = userId || parsed?.state?.user?.id;
+        username = parsed?.state?.user?.username;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
   currentConnectedToken = token;
   socketInstance = io(SOCKET_SERVER_URL, {
-    auth: { token },
+    auth: { token, userId, username },
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: 20,
     reconnectionDelay: 1000,
   }) as TypedSocket;
 
   socketInstance.on('connect', () => {
-    // Connected to server
+    console.log('[Socket] Connected to server, socketId:', socketInstance?.id);
   });
 
-  socketInstance.on('connect_error', (_err) => {
-    // Socket connection error
+  socketInstance.on('connect_error', (err) => {
+    console.warn('[Socket] Connection error:', err.message);
   });
 
   return socketInstance;

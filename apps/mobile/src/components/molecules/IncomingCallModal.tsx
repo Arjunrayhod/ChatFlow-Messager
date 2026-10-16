@@ -96,17 +96,17 @@ export function IncomingCallModal() {
               ]}
             />
             <Avatar
-              uri={partner.avatarUrl}
-              name={partner.displayName}
+              uri={partner?.avatarUrl}
+              name={partner?.displayName || 'User'}
               size="xl"
             />
           </View>
 
           <Text variant="h1" style={styles.partnerName} numberOfLines={1}>
-            {partner.displayName}
+            {partner?.displayName || 'Incoming Call'}
           </Text>
           <Text variant="body" style={styles.partnerUsername}>
-            @{partner.username.replace(/^@/, '')}
+            @{partner?.username ? partner.username.replace(/^@/, '') : 'user'}
           </Text>
           <Text variant="caption" style={styles.ringingStatus}>
             Ringing...

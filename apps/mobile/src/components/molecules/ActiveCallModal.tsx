@@ -170,17 +170,17 @@ export function ActiveCallModal() {
                 />
               )}
               <Avatar
-                uri={partner.avatarUrl}
-                name={partner.displayName}
+                uri={partner?.avatarUrl}
+                name={partner?.displayName || 'User'}
                 size="xl"
               />
             </View>
 
             <Text variant="h1" style={styles.partnerName} numberOfLines={1}>
-              {partner.displayName}
+              {partner?.displayName || 'ChatFlow User'}
             </Text>
             <Text variant="body" style={styles.partnerUsername}>
-              @{partner.username.replace(/^@/, '')}
+              @{partner?.username ? partner.username.replace(/^@/, '') : 'user'}
             </Text>
 
             {/* Status or Live Duration */}
