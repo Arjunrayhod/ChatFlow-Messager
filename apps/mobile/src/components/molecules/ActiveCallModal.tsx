@@ -100,10 +100,16 @@ function WebAudioPlayer({ stream }: { stream: MediaStream | null }) {
   useEffect(() => {
     if (audioRef.current) {
       if (stream) {
-        audioRef.current.srcObject = stream;
-        audioRef.current.play().catch((err) => {
-          console.warn('[WebAudioPlayer] play error:', err);
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
         });
+        audioRef.current.srcObject = stream;
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('[WebAudioPlayer] play error:', err);
+          });
+        }
       } else {
         audioRef.current.srcObject = null;
       }
@@ -117,7 +123,15 @@ function WebAudioPlayer({ stream }: { stream: MediaStream | null }) {
       ref={audioRef}
       autoPlay
       playsInline
-      style={{ display: 'none' }}
+      style={{
+        position: 'fixed',
+        top: -9999,
+        left: -9999,
+        width: 1,
+        height: 1,
+        opacity: 0.01,
+        pointerEvents: 'none',
+      }}
     />
   );
 }

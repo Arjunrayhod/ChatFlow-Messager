@@ -297,6 +297,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     });
 
     ringtoneService.startOutgoingRingback();
+    webrtcService.unlockAudio();
 
     try {
       // 1. Get user media stream
@@ -333,6 +334,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     if (!activeCall || activeCall.direction !== 'incoming' || !activeCall.incomingSdp) return;
 
     ringtoneService.stopAll();
+    webrtcService.unlockAudio();
 
     try {
       // 1. Get user media stream

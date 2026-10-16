@@ -22,7 +22,10 @@ const RTC_CONFIG: RTCConfiguration = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.turn.twilio.com:3478?transport=udp' },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export class WebRTCService {
@@ -140,6 +143,10 @@ export class WebRTCService {
   /**
    * Initializes RTCPeerConnection with listeners and attaches local stream tracks.
    */
+  /**
+   * Initializes RTCPeerConnection with listeners and attaches local stream tracks.
+   * NOTE: We preserve candidateQueue so candidates received before user taps 'Accept' are NOT wiped!
+   */
   initPeerConnection(
     onRemoteStream: (stream: MediaStream) => void,
     onIceCandidate: (candidate: RTCIceCandidate) => void,
@@ -149,7 +156,19 @@ export class WebRTCService {
       return null;
     }
 
-    this.cleanupPeerConnection();
+    // Close any previous connection instance if still open, but preserve candidateQueue for this call
+    if (this.pc) {
+      this.pc.ontrack = null;
+      this.pc.onicecandidate = null;
+      this.pc.onconnectionstatechange = null;
+      (this.pc as any).oniceconnectionstatechange = null;
+      try {
+        this.pc.close();
+      } catch {
+        // ignore
+      }
+      this.pc = null;
+    }
 
     this.onRemoteStreamCallback = onRemoteStream;
     this.onIceCandidateCallback = onIceCandidate;
@@ -167,7 +186,10 @@ export class WebRTCService {
 
     // Remote track listener
     pc.ontrack = (event) => {
-      console.log('[WebRTCService] ontrack received track:', event.track.kind);
+      console.log('[WebRTCService] ontrack received track kind:', event.track.kind);
+      // Ensure incoming audio/video track is enabled
+      event.track.enabled = true;
+
       let stream = event.streams[0];
       if (!stream) {
         if (!this.remoteStream) {
@@ -196,7 +218,59 @@ export class WebRTCService {
       this.onConnectionStateCallback?.(pc.connectionState);
     };
 
+    // ICE Connection state changes
+    pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTCService] pc.iceConnectionState:', pc.iceConnectionState);
+    };
+
     return pc;
+  }
+
+  /**
+   * Helper to get or create remote audio playback DOM element.
+   * Avoids display: 'none' which triggers mobile browser audio throttling.
+   */
+  private getOrCreateAudioElement(): HTMLAudioElement | null {
+    if (typeof document === 'undefined') return null;
+    if (!this.remoteAudio) {
+      const audio = document.createElement('audio');
+      audio.autoplay = true;
+      (audio as any).playsInline = true;
+      audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('autoplay', 'true');
+      // Position offscreen instead of display: none to guarantee audio engine keeps running
+      audio.style.position = 'fixed';
+      audio.style.top = '-9999px';
+      audio.style.left = '-9999px';
+      audio.style.width = '1px';
+      audio.style.height = '1px';
+      audio.style.opacity = '0.01';
+      audio.style.pointerEvents = 'none';
+      document.body.appendChild(audio);
+      this.remoteAudio = audio;
+    }
+    return this.remoteAudio;
+  }
+
+  /**
+   * Mobile browsers (iOS Safari, Chrome Android) require a user gesture to unlock Web Audio playback.
+   * Call this on "Start Call" or "Answer Call" press.
+   */
+  unlockAudio() {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    try {
+      const audio = this.getOrCreateAudioElement();
+      if (audio) {
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {
+            // normal if empty src
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 
   /**
@@ -205,19 +279,25 @@ export class WebRTCService {
   private playRemoteAudio(stream: MediaStream) {
     if (typeof document === 'undefined') return;
     try {
-      if (!this.remoteAudio) {
-        this.remoteAudio = document.createElement('audio');
-        this.remoteAudio.autoplay = true;
-        (this.remoteAudio as any).playsInline = true;
-        this.remoteAudio.setAttribute('playsinline', 'true');
-        this.remoteAudio.setAttribute('autoplay', 'true');
-        this.remoteAudio.style.display = 'none';
-        document.body.appendChild(this.remoteAudio);
-      }
-      this.remoteAudio.srcObject = stream;
-      this.remoteAudio.play().catch((err) => {
-        console.warn('[WebRTCService] playRemoteAudio autoplay blocked or delayed:', err);
+      const audio = this.getOrCreateAudioElement();
+      if (!audio) return;
+
+      // Ensure all audio tracks are active
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
       });
+
+      audio.srcObject = stream;
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log('[WebRTCService] playRemoteAudio playback active');
+          })
+          .catch((err) => {
+            console.warn('[WebRTCService] playRemoteAudio autoplay blocked or delayed:', err);
+          });
+      }
     } catch (err) {
       console.warn('[WebRTCService] playRemoteAudio error:', err);
     }
@@ -276,13 +356,25 @@ export class WebRTCService {
   /**
    * Adds an ICE candidate received from peer, with queuing if remote description is pending.
    */
-  async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+  async addIceCandidate(candidate: any): Promise<void> {
+    if (!candidate) return;
+
+    // Normalize candidate object in case serialized in varying forms
+    const rawCandidate =
+      candidate.candidate !== undefined
+        ? candidate
+        : candidate.candidateInit
+        ? candidate.candidateInit
+        : candidate;
+
     if (!this.pc || !this.pc.remoteDescription || !this.pc.remoteDescription.type) {
-      this.candidateQueue.push(candidate);
+      console.log('[WebRTCService] Remote description not set yet, queuing candidate');
+      this.candidateQueue.push(rawCandidate);
       return;
     }
     try {
-      await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      await this.pc.addIceCandidate(new RTCIceCandidate(rawCandidate));
+      console.log('[WebRTCService] Added ICE candidate successfully');
     } catch (err) {
       console.warn('[WebRTCService] addIceCandidate failed:', err);
     }
@@ -293,6 +385,7 @@ export class WebRTCService {
    */
   private async processCandidateQueue(): Promise<void> {
     if (!this.pc || !this.pc.remoteDescription) return;
+    console.log(`[WebRTCService] Flushing candidate queue (${this.candidateQueue.length} candidates)`);
     while (this.candidateQueue.length > 0) {
       const candidate = this.candidateQueue.shift();
       if (candidate) {
@@ -380,13 +473,14 @@ export class WebRTCService {
   }
 
   /**
-   * Cleans up RTCPeerConnection and releases all resources.
+   * Cleans up RTCPeerConnection and releases active media listeners.
    */
   cleanupPeerConnection() {
     if (this.pc) {
       this.pc.ontrack = null;
       this.pc.onicecandidate = null;
       this.pc.onconnectionstatechange = null;
+      (this.pc as any).oniceconnectionstatechange = null;
       try {
         this.pc.close();
       } catch {
@@ -402,7 +496,6 @@ export class WebRTCService {
         // ignore
       }
     }
-    this.candidateQueue = [];
     this.remoteStream = null;
   }
 
@@ -412,6 +505,7 @@ export class WebRTCService {
   destroy() {
     this.stopLocalMedia();
     this.cleanupPeerConnection();
+    this.candidateQueue = [];
   }
 }
 
