@@ -27,10 +27,10 @@ function startServer(): void {
   // Start background 24-hour status expiration cleaner worker
   statusCleanerWorker.start();
 
-  const server = httpServer.listen(env.PORT, () => {
+  const server = httpServer.listen(env.PORT, '0.0.0.0', () => {
     logger.info(
-      { port: env.PORT, environment: env.NODE_ENV },
-      `ChatFlow API Server & Socket.IO started successfully on port ${env.PORT}`
+      { port: env.PORT, host: '0.0.0.0', environment: env.NODE_ENV },
+      `ChatFlow API Server & Socket.IO started successfully on http://0.0.0.0:${env.PORT}`
     );
   });
 
