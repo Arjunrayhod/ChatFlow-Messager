@@ -424,11 +424,12 @@ export function initSocketServer(
       }
     });
 
-    // C. Reject Call (Receiver declines call)
+    // C. Reject Call (Receiver declines call or is busy)
     socket.on('call_reject', async ({ callId, callerId, reason }) => {
       try {
+        const isBusy = Boolean(reason?.toLowerCase().includes('busy'));
         await db.updateCallRecord(callId, {
-          status: 'rejected',
+          status: isBusy ? 'busy' : 'rejected',
           endedAt: new Date().toISOString(),
         });
 
@@ -444,10 +445,13 @@ export function initSocketServer(
 
         rejectEmitter.emit('call_rejected', {
           callId,
-          reason: reason || 'Call declined',
+          reason: reason || (isBusy ? 'User is busy on another call' : 'Call declined'),
         });
 
-        logger.info({ callId, callerId, rejectedBy: userId }, `Call rejected`);
+        logger.info(
+          { callId, callerId, rejectedBy: userId, isBusy, reason },
+          isBusy ? `Call marked busy (receiver engaged on another call)` : `Call rejected`
+        );
       } catch (err) {
         logger.error({ err, callId }, 'Failed to reject call');
       }

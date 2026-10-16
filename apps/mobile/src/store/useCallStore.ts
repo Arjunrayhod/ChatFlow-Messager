@@ -43,6 +43,7 @@ export interface ActiveCall {
   status: CallStatus | 'idle';
   direction: 'incoming' | 'outgoing';
   incomingSdp?: unknown;
+  endReason?: string;
 }
 
 export interface CallStoreState {
@@ -190,12 +191,19 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       }
 
       ringtoneService.stopAll();
-      ringtoneService.playCallEndedTone();
+
+      const isBusy = Boolean(payload?.reason?.toLowerCase().includes('busy'));
+      if (isBusy) {
+        ringtoneService.playBusyTone();
+      } else {
+        ringtoneService.playCallEndedTone();
+      }
 
       set({
         activeCall: {
           ...activeCall,
-          status: 'rejected',
+          status: isBusy ? 'busy' : 'rejected',
+          endReason: payload?.reason || (isBusy ? 'User is busy on another call' : 'Call Declined'),
         },
       });
 
@@ -207,7 +215,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
           remoteStream: null,
           callDuration: 0,
         });
-      }, 2000);
+      }, 3000);
     });
 
     // E. ICE Candidate Received
@@ -401,9 +409,25 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     }
 
     ringtoneService.stopAll();
-    ringtoneService.playCallEndedTone();
 
     if (activeCall) {
+      // If already busy, rejected, or ended, dismiss modal immediately without waiting
+      if (
+        activeCall.status === 'busy' ||
+        activeCall.status === 'rejected' ||
+        activeCall.status === 'ended'
+      ) {
+        webrtcService.destroy();
+        set({
+          activeCall: null,
+          localStream: null,
+          remoteStream: null,
+          callDuration: 0,
+        });
+        return;
+      }
+
+      ringtoneService.playCallEndedTone();
       emitCallEnd(activeCall.callId, activeCall.partner.id, callDuration);
       set({
         activeCall: {

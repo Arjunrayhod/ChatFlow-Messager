@@ -89,13 +89,19 @@ export function ActiveCallModal() {
     switchCamera,
   } = useCallStore();
 
+  const isBusy =
+    activeCall?.status === 'busy' ||
+    Boolean(activeCall?.endReason?.toLowerCase().includes('busy'));
+
   const isVisible =
     Boolean(activeCall) &&
     (activeCall?.status === 'connected' ||
       (activeCall?.direction === 'outgoing' &&
         (activeCall?.status === 'calling' || activeCall?.status === 'ringing')) ||
       activeCall?.status === 'ended' ||
-      activeCall?.status === 'rejected');
+      activeCall?.status === 'rejected' ||
+      activeCall?.status === 'busy' ||
+      isBusy);
 
   // Pulse animation for audio call wave
   const waveAnim = useRef(new Animated.Value(1)).current;
@@ -184,17 +190,41 @@ export function ActiveCallModal() {
             </Text>
 
             {/* Status or Live Duration */}
-            <View style={styles.statusBadge}>
+            <View
+              style={[
+                styles.statusBadge,
+                isBusy && {
+                  backgroundColor: 'rgba(247, 128, 142, 0.15)',
+                  borderColor: '#F7808E',
+                },
+              ]}
+            >
               <Ionicons
-                name={isConnected ? 'lock-closed' : isVideo ? 'videocam' : 'call'}
+                name={
+                  isBusy
+                    ? 'alert-circle'
+                    : isConnected
+                    ? 'lock-closed'
+                    : isVideo
+                    ? 'videocam'
+                    : 'call'
+                }
                 size={14}
-                color={tokens.colors.dark.primary}
+                color={isBusy ? '#F7808E' : tokens.colors.dark.primary}
               />
-              <Text variant="caption" style={styles.statusText}>
+              <Text
+                variant="caption"
+                style={[
+                  styles.statusText,
+                  isBusy && { color: '#F7808E', fontWeight: '700' },
+                ]}
+              >
                 {activeCall.status === 'calling'
                   ? 'Calling...'
                   : activeCall.status === 'ringing'
                   ? 'Ringing...'
+                  : isBusy
+                  ? 'On another call'
                   : activeCall.status === 'rejected'
                   ? 'Call Declined'
                   : activeCall.status === 'ended'

@@ -170,6 +170,43 @@ class RingtoneManager {
   }
 
   /**
+   * Plays standard telephone rapid busy tone (480Hz + 620Hz engaged beeps).
+   */
+  playBusyTone() {
+    this.stopAll();
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+
+    const pulses = [0, 0.4, 0.8, 1.2];
+    pulses.forEach((time) => {
+      try {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(480, ctx.currentTime + time);
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(620, ctx.currentTime + time);
+
+        gain.gain.setValueAtTime(0.12, ctx.currentTime + time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + time + 0.28);
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc1.start(ctx.currentTime + time);
+        osc2.start(ctx.currentTime + time);
+        osc1.stop(ctx.currentTime + time + 0.3);
+        osc2.stop(ctx.currentTime + time + 0.3);
+      } catch {
+        // Ignore
+      }
+    });
+  }
+
+  /**
    * Stops all running sound loops.
    */
   stopAll() {
