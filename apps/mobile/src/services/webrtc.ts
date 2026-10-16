@@ -7,8 +7,10 @@
  * 1. RTCPeerConnection initialize karti hai (Google STUN servers ke sath).
  * 2. Microphone aur Camera ka local stream capture karti hai (getUserMedia).
  * 3. Offer create karna, Answer create karna, aur ICE Candidates exchange karna.
- * 4. Mic mute/unmute, Camera on/off, aur Front/Back camera flip support karti hai.
- * 5. Call end hone par tracks aur peer connection ko clean up karti hai.
+ * 4. Automatic ICE candidate queuing jab remote description pending ho.
+ * 5. Dedicated remote audio playback taaki Voice aur Video calls me audio crystal clear aaye.
+ * 6. Mic mute/unmute, Camera on/off, aur Front/Back camera flip support karti hai.
+ * 7. Call end hone par tracks aur peer connection ko clean up karti hai.
  */
 
 import { Platform } from 'react-native';
@@ -18,6 +20,8 @@ const RTC_CONFIG: RTCConfiguration = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
   ],
 };
 
@@ -26,6 +30,8 @@ export class WebRTCService {
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
   private currentFacing: 'user' | 'environment' = 'user';
+  private remoteAudio: HTMLAudioElement | null = null;
+  private candidateQueue: RTCIceCandidateInit[] = [];
 
   private onRemoteStreamCallback?: (stream: MediaStream) => void;
   private onIceCandidateCallback?: (candidate: RTCIceCandidate) => void;
@@ -40,6 +46,7 @@ export class WebRTCService {
    */
   async getLocalMedia(type: 'audio' | 'video'): Promise<MediaStream | null> {
     if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !navigator.mediaDevices) {
+      console.warn('[WebRTCService] navigator.mediaDevices unavailable (requires secure context or localhost)');
       return null;
     }
 
@@ -63,15 +70,33 @@ export class WebRTCService {
             : false,
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      this.localStream = stream;
-      return stream;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+        this.localStream = stream;
+        return stream;
+      } catch (advancedErr) {
+        console.warn('[WebRTCService] Advanced getUserMedia failed, trying relaxed constraints:', advancedErr);
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: type === 'video',
+        });
+        fallbackStream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+        this.localStream = fallbackStream;
+        return fallbackStream;
+      }
     } catch (err) {
-      console.warn('[WebRTCService] getUserMedia failed or permission denied:', err);
-      // Fallback: If video failed (e.g. no camera attached on desktop), try audio only
+      console.warn('[WebRTCService] getUserMedia completely failed or permission denied:', err);
       if (type === 'video') {
         try {
           const audioOnlyStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioOnlyStream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
           this.localStream = audioOnlyStream;
           return audioOnlyStream;
         } catch {
@@ -112,11 +137,20 @@ export class WebRTCService {
 
     // Remote track listener
     pc.ontrack = (event) => {
-      const stream = event.streams[0];
-      if (stream) {
+      console.log('[WebRTCService] ontrack received track:', event.track.kind);
+      let stream = event.streams[0];
+      if (!stream) {
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream();
+        }
+        this.remoteStream.addTrack(event.track);
+        stream = this.remoteStream;
+      } else {
         this.remoteStream = stream;
-        this.onRemoteStreamCallback?.(stream);
       }
+
+      this.playRemoteAudio(stream);
+      this.onRemoteStreamCallback?.(stream);
     };
 
     // ICE Candidate generation listener
@@ -128,10 +162,35 @@ export class WebRTCService {
 
     // Connection state changes
     pc.onconnectionstatechange = () => {
+      console.log('[WebRTCService] pc.connectionState:', pc.connectionState);
       this.onConnectionStateCallback?.(pc.connectionState);
     };
 
     return pc;
+  }
+
+  /**
+   * Plays remote audio stream through dedicated audio element.
+   */
+  private playRemoteAudio(stream: MediaStream) {
+    if (typeof document === 'undefined') return;
+    try {
+      if (!this.remoteAudio) {
+        this.remoteAudio = document.createElement('audio');
+        this.remoteAudio.autoplay = true;
+        (this.remoteAudio as any).playsInline = true;
+        this.remoteAudio.setAttribute('playsinline', 'true');
+        this.remoteAudio.setAttribute('autoplay', 'true');
+        this.remoteAudio.style.display = 'none';
+        document.body.appendChild(this.remoteAudio);
+      }
+      this.remoteAudio.srcObject = stream;
+      this.remoteAudio.play().catch((err) => {
+        console.warn('[WebRTCService] playRemoteAudio autoplay blocked or delayed:', err);
+      });
+    } catch (err) {
+      console.warn('[WebRTCService] playRemoteAudio error:', err);
+    }
   }
 
   /**
@@ -159,6 +218,7 @@ export class WebRTCService {
     if (!this.pc) return null;
     try {
       await this.pc.setRemoteDescription(new RTCSessionDescription(remoteOffer));
+      await this.processCandidateQueue();
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
       return answer;
@@ -176,6 +236,7 @@ export class WebRTCService {
     try {
       if (this.pc.signalingState !== 'stable') {
         await this.pc.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
+        await this.processCandidateQueue();
       }
     } catch (err) {
       console.warn('[WebRTCService] setRemoteAnswer failed:', err);
@@ -183,14 +244,34 @@ export class WebRTCService {
   }
 
   /**
-   * Adds an ICE candidate received from peer.
+   * Adds an ICE candidate received from peer, with queuing if remote description is pending.
    */
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
-    if (!this.pc) return;
+    if (!this.pc || !this.pc.remoteDescription || !this.pc.remoteDescription.type) {
+      this.candidateQueue.push(candidate);
+      return;
+    }
     try {
       await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
       console.warn('[WebRTCService] addIceCandidate failed:', err);
+    }
+  }
+
+  /**
+   * Flushes queued ICE candidates after remote description is established.
+   */
+  private async processCandidateQueue(): Promise<void> {
+    if (!this.pc || !this.pc.remoteDescription) return;
+    while (this.candidateQueue.length > 0) {
+      const candidate = this.candidateQueue.shift();
+      if (candidate) {
+        try {
+          await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.warn('[WebRTCService] Queued candidate add error:', err);
+        }
+      }
     }
   }
 
@@ -283,6 +364,15 @@ export class WebRTCService {
       }
       this.pc = null;
     }
+    if (this.remoteAudio) {
+      try {
+        this.remoteAudio.pause();
+        this.remoteAudio.srcObject = null;
+      } catch {
+        // ignore
+      }
+    }
+    this.candidateQueue = [];
     this.remoteStream = null;
   }
 

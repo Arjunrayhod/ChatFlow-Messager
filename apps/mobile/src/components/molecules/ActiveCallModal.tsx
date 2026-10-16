@@ -74,6 +74,35 @@ function WebVideoPlayer({
   );
 }
 
+// Dedicated Web Audio Element Component for reliable voice playback
+function WebAudioPlayer({ stream }: { stream: MediaStream | null }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      if (stream) {
+        audioRef.current.srcObject = stream;
+        audioRef.current.play().catch((err) => {
+          console.warn('[WebAudioPlayer] play error:', err);
+        });
+      } else {
+        audioRef.current.srcObject = null;
+      }
+    }
+  }, [stream]);
+
+  if (Platform.OS !== 'web') return null;
+
+  return (
+    <audio
+      ref={audioRef}
+      autoPlay
+      playsInline
+      style={{ display: 'none' }}
+    />
+  );
+}
+
 export function ActiveCallModal() {
   const insets = useSafeAreaInsets();
   const {
@@ -143,6 +172,9 @@ export function ActiveCallModal() {
   return (
     <Modal visible={isVisible} transparent={false} animationType="fade" statusBarTranslucent>
       <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        {/* Dedicated Web Audio Player for both Voice & Video calls */}
+        <WebAudioPlayer stream={remoteStream} />
+
         {/* VIDEO MODE: Remote Full Screen & Local PIP */}
         {isVideo && isConnected && remoteStream ? (
           <View style={StyleSheet.absoluteFill}>
