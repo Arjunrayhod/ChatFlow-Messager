@@ -17,14 +17,20 @@ import {
 } from '@chatflow/shared';
 import { Platform } from 'react-native';
 
-function getSocketUrl(): string {
-  if (process.env.EXPO_PUBLIC_SOCKET_URL) return process.env.EXPO_PUBLIC_SOCKET_URL;
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
-    const host = window.location.hostname || 'localhost';
-    return `http://${host}:4000`;
+export function getSocketUrl(): string {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    const host = window.location.hostname;
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return `${window.location.protocol}//${host}:4000`;
+    }
   }
-  return 'http://localhost:4000';
+  if (process.env.EXPO_PUBLIC_SOCKET_URL && !process.env.EXPO_PUBLIC_SOCKET_URL.includes('localhost')) {
+    return process.env.EXPO_PUBLIC_SOCKET_URL;
+  }
+  if (process.env.EXPO_PUBLIC_API_URL && !process.env.EXPO_PUBLIC_API_URL.includes('localhost')) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  return 'http://10.160.190.85:4000';
 }
 
 const SOCKET_SERVER_URL = getSocketUrl();
@@ -70,7 +76,8 @@ export function connectSocket(token: string, explicitUserId?: string): TypedSock
   }
 
   currentConnectedToken = token;
-  socketInstance = io(SOCKET_SERVER_URL, {
+  const socketTargetUrl = getSocketUrl();
+  socketInstance = io(socketTargetUrl, {
     auth: { token, userId, username },
     transports: ['websocket', 'polling'],
     reconnection: true,

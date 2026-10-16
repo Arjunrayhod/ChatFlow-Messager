@@ -30,7 +30,7 @@ interface SocketData {
 
 export function initSocketServer(
   httpServer: HttpServer,
-  corsOrigin = '*'
+  _corsOrigin = '*'
 ): SocketIOServer<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData> {
   const io = new SocketIOServer<
     ClientToServerEvents,
@@ -39,7 +39,7 @@ export function initSocketServer(
     SocketData
   >(httpServer, {
     cors: {
-      origin: corsOrigin,
+      origin: true,
       methods: ['GET', 'POST'],
       credentials: true,
     },

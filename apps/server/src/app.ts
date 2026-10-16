@@ -44,10 +44,10 @@ export function createApp(): Application {
   app.set('etag', false);
 
   // [HINGLISH]: CORS frontend ko backend se API call karne deta hai
-  // Cross-Origin Resource Sharing
+  // Cross-Origin Resource Sharing (dynamically allows LAN IP & mobile clients)
   app.use(
     cors({
-      origin: env.CORS_ORIGIN,
+      origin: true,
       credentials: true,
     })
   );
