@@ -15,20 +15,21 @@ import {
 import { Platform } from 'react-native';
 
 export function getApiBaseUrl(): string {
-  // 1. If running on web in a browser (e.g. phone browser accessing http://10.160.190.85:8081)
+  // 1. If running on web in a browser (localhost on PC or LAN IP on mobile phone)
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
     const host = window.location.hostname;
-    if (host && host !== 'localhost' && host !== '127.0.0.1') {
-      return `${window.location.protocol}//${host}:4000`;
+    const protocol = window.location.protocol || 'http:';
+    if (host) {
+      return `${protocol}//${host}:4000`;
     }
   }
 
-  // 2. If EXPO_PUBLIC_API_URL is configured with non-localhost
-  if (process.env.EXPO_PUBLIC_API_URL && !process.env.EXPO_PUBLIC_API_URL.includes('localhost')) {
+  // 2. If EXPO_PUBLIC_API_URL is configured
+  if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
 
-  // 3. Fallback to PC Wi-Fi LAN IP so native mobile Expo Go also connects directly to PC!
+  // 3. Fallback to PC Wi-Fi LAN IP
   return 'http://10.160.190.85:4000';
 }
 

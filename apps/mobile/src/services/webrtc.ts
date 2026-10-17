@@ -23,7 +23,6 @@ const RTC_CONFIG: RTCConfiguration = {
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:global.turn.twilio.com:3478?transport=udp' },
   ],
   iceCandidatePoolSize: 10,
 };
@@ -208,7 +207,15 @@ export class WebRTCService {
     // ICE Candidate generation listener
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        this.onIceCandidateCallback?.(event.candidate);
+        const candidatePayload = event.candidate.toJSON
+          ? event.candidate.toJSON()
+          : {
+              candidate: event.candidate.candidate,
+              sdpMid: event.candidate.sdpMid,
+              sdpMLineIndex: event.candidate.sdpMLineIndex,
+              usernameFragment: event.candidate.usernameFragment,
+            };
+        this.onIceCandidateCallback?.(candidatePayload as any);
       }
     };
 
@@ -304,14 +311,33 @@ export class WebRTCService {
   }
 
   /**
-   * Creates an SDP offer for initiating a call.
+   * Creates an SDP offer for initiating a call with Unified Plan transceivers.
    */
-  async createOffer(): Promise<RTCSessionDescriptionInit | null> {
+  async createOffer(callType: 'audio' | 'video' = 'video'): Promise<RTCSessionDescriptionInit | null> {
     if (!this.pc) return null;
     try {
+      // Modern WebRTC Unified Plan: Guarantee audio transceiver
+      const senders = this.pc.getSenders();
+      const hasAudio = senders.some((s) => s.track?.kind === 'audio');
+      if (!hasAudio) {
+        try {
+          this.pc.addTransceiver('audio', { direction: 'sendrecv' });
+        } catch {}
+      }
+
+      // Guarantee video transceiver for video calls
+      if (callType === 'video') {
+        const hasVideo = senders.some((s) => s.track?.kind === 'video');
+        if (!hasVideo) {
+          try {
+            this.pc.addTransceiver('video', { direction: 'sendrecv' });
+          } catch {}
+        }
+      }
+
       const offer = await this.pc.createOffer({
         offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
+        offerToReceiveVideo: callType === 'video',
       });
       await this.pc.setLocalDescription(offer);
       return offer;
@@ -367,6 +393,11 @@ export class WebRTCService {
         ? candidate.candidateInit
         : candidate;
 
+    // Guard against empty candidate strings (browsers send candidate: "" on ICE completion)
+    if (!rawCandidate || rawCandidate.candidate === '' || rawCandidate.candidate === null) {
+      return;
+    }
+
     if (!this.pc || !this.pc.remoteDescription || !this.pc.remoteDescription.type) {
       console.log('[WebRTCService] Remote description not set yet, queuing candidate');
       this.candidateQueue.push(rawCandidate);
@@ -388,7 +419,7 @@ export class WebRTCService {
     console.log(`[WebRTCService] Flushing candidate queue (${this.candidateQueue.length} candidates)`);
     while (this.candidateQueue.length > 0) {
       const candidate = this.candidateQueue.shift();
-      if (candidate) {
+      if (candidate && candidate.candidate !== '' && candidate.candidate !== null) {
         try {
           await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {

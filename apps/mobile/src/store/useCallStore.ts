@@ -13,6 +13,7 @@
  */
 
 import { create } from 'zustand';
+import { Alert, Platform } from 'react-native';
 import {
   CallType,
   CallStatus,
@@ -300,9 +301,27 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     webrtcService.unlockAudio();
 
     try {
-      // 1. Get user media stream
-      const stream = await webrtcService.getLocalMedia(type);
+      // 1. Get user media stream with audio fallback for video
+      let stream = await webrtcService.getLocalMedia(type);
+      if (!stream && type === 'video') {
+        console.log('[useCallStore] Video acquisition failed, attempting audio-only fallback');
+        stream = await webrtcService.getLocalMedia('audio');
+      }
+
       set({ localStream: stream });
+
+      // If media is blocked (e.g. Chrome Android insecure origin on LAN HTTP or denied permission)
+      if (!stream && Platform.OS === 'web' && typeof window !== 'undefined') {
+        const isHttp = window.location.protocol === 'http:';
+        const isLocal =
+          window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (isHttp && !isLocal) {
+          Alert.alert(
+            'Browser Permission Notice',
+            'Mobile browser par HTTP IP se Camera/Mic access restricted hai. Calling use karne ke liye APK install karein ya chrome://flags me insecure origin enable karein.'
+          );
+        }
+      }
 
       // 2. Initialize peer connection
       webrtcService.initPeerConnection(
@@ -314,14 +333,18 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         }
       );
 
-      // 3. Create SDP Offer
-      const offer = await webrtcService.createOffer();
+      // 3. Create SDP Offer with explicit type
+      const offer = await webrtcService.createOffer(type);
       if (offer) {
         emitCallInitiate(callId, partner.id, type, offer);
       }
     } catch (err) {
       console.warn('[useCallStore] startCall error:', err);
       ringtoneService.stopAll();
+      Alert.alert(
+        'Call Error',
+        'Call shuru karne me samasya aayi. Kripya microphone ya camera permission check karein.'
+      );
       set({ activeCall: null, localStream: null });
     }
   },
@@ -337,8 +360,13 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     webrtcService.unlockAudio();
 
     try {
-      // 1. Get user media stream
-      const stream = await webrtcService.getLocalMedia(activeCall.type);
+      // 1. Get user media stream with audio fallback
+      let stream = await webrtcService.getLocalMedia(activeCall.type);
+      if (!stream && activeCall.type === 'video') {
+        console.log('[useCallStore] Video acquisition failed on answer, attempting audio-only fallback');
+        stream = await webrtcService.getLocalMedia('audio');
+      }
+
       set({ localStream: stream });
 
       // 2. Initialize peer connection
@@ -375,6 +403,10 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     } catch (err) {
       console.warn('[useCallStore] answerCall error:', err);
       ringtoneService.stopAll();
+      Alert.alert(
+        'Call Answer Error',
+        'Call answer karne me samasya aayi. Kripya microphone/camera permission check karein.'
+      );
       set({ activeCall: null, localStream: null });
     }
   },

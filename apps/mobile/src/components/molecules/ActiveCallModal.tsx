@@ -48,8 +48,11 @@ function WebVideoPlayer({
     const el = videoRef.current;
     if (!el) return;
 
-    if (stream) {
-      el.srcObject = stream;
+    const attachStream = () => {
+      if (!el || !stream) return;
+      if (el.srcObject !== stream) {
+        el.srcObject = stream;
+      }
       el.muted = isMuted;
       el.defaultMuted = isMuted;
       el.setAttribute('playsinline', 'true');
@@ -68,6 +71,14 @@ function WebVideoPlayer({
           }
         });
       }
+    };
+
+    if (stream) {
+      attachStream();
+      stream.addEventListener('addtrack', attachStream);
+      return () => {
+        stream.removeEventListener('addtrack', attachStream);
+      };
     } else {
       el.srcObject = null;
     }
@@ -98,21 +109,33 @@ function WebAudioPlayer({ stream }: { stream: MediaStream | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    if (audioRef.current) {
-      if (stream) {
-        stream.getAudioTracks().forEach((track) => {
-          track.enabled = true;
-        });
-        audioRef.current.srcObject = stream;
-        const playPromise = audioRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.warn('[WebAudioPlayer] play error:', err);
-          });
-        }
-      } else {
-        audioRef.current.srcObject = null;
+    const el = audioRef.current;
+    if (!el) return;
+
+    const playStream = () => {
+      if (!el || !stream) return;
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      if (el.srcObject !== stream) {
+        el.srcObject = stream;
       }
+      const playPromise = el.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('[WebAudioPlayer] play error:', err);
+        });
+      }
+    };
+
+    if (stream) {
+      playStream();
+      stream.addEventListener('addtrack', playStream);
+      return () => {
+        stream.removeEventListener('addtrack', playStream);
+      };
+    } else {
+      el.srcObject = null;
     }
   }, [stream]);
 
@@ -217,7 +240,7 @@ export function ActiveCallModal() {
                 3. Fallback to Avatar if video is off or unavailable
             */}
             {isConnected && remoteStream && remoteStream.getVideoTracks().length > 0 ? (
-              <WebVideoPlayer stream={remoteStream} isMuted={false} />
+              <WebVideoPlayer stream={remoteStream} isMuted={true} />
             ) : localStream && localStream.getVideoTracks().length > 0 && !isVideoOff ? (
               <WebVideoPlayer stream={localStream} isMuted={true} isMirrored={true} />
             ) : (

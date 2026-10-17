@@ -145,6 +145,25 @@ export function initSocketServer(
       void socket.join(`user_${clientUserId}`);
     }
 
+    // Join canonical database user rooms (id, username, firebaseUid)
+    void (async () => {
+      try {
+        const u =
+          (await db.findUserById(userId)) ||
+          (await db.findUserByFirebaseUid(userId)) ||
+          (username ? await db.findUserByUsername(username) : null);
+        if (u) {
+          void socket.join(`user_${u.id}`);
+          void socket.join(`user_${u.username}`);
+          if (u.firebaseUid) {
+            void socket.join(`user_${u.firebaseUid}`);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
     // 1. Join Chat Room
     socket.on('join_room', ({ chatId }) => {
       void socket.join(chatId);
@@ -304,7 +323,6 @@ export function initSocketServer(
     // =========================================================================
 
     // A. Initiate Call (Sender sends offer)
-    // A. Initiate Call (Sender sends offer)
     socket.on('call_initiate', async ({ callId, receiverId, type, sdp }) => {
       try {
         let callerUser = await db.findUserById(userId);
@@ -314,6 +332,9 @@ export function initSocketServer(
         let receiverUser = await db.findUserById(receiverId);
         if (!receiverUser) {
           receiverUser = await db.findUserByUsername(receiverId);
+        }
+        if (!receiverUser) {
+          receiverUser = await db.findUserByFirebaseUid(receiverId);
         }
 
         const effectiveCallerId = callerUser ? callerUser.id : userId;
@@ -330,6 +351,9 @@ export function initSocketServer(
           socket.data.username = callerUser.username;
           void socket.join(`user_${callerUser.id}`);
           void socket.join(`user_${callerUser.username}`);
+          if (callerUser.firebaseUid) {
+            void socket.join(`user_${callerUser.firebaseUid}`);
+          }
         }
 
         const newCall: CallRecord = {
@@ -370,6 +394,9 @@ export function initSocketServer(
         if (receiverUser?.id && `user_${receiverUser.id}` !== targetRoom) {
           emitter = emitter.to(`user_${receiverUser.id}`);
         }
+        if (receiverUser?.firebaseUid && `user_${receiverUser.firebaseUid}` !== targetRoom) {
+          emitter = emitter.to(`user_${receiverUser.firebaseUid}`);
+        }
 
         emitter.emit('incoming_call', {
           callId,
@@ -402,7 +429,10 @@ export function initSocketServer(
           answeredAt: new Date().toISOString(),
         });
 
-        const callerUser = (await db.findUserById(callerId)) || (await db.findUserByFirebaseUid(callerId));
+        const callerUser =
+          (await db.findUserById(callerId)) ||
+          (await db.findUserByFirebaseUid(callerId)) ||
+          (await db.findUserByUsername(callerId));
 
         let callerEmitter = io.to(`user_${callerId}`);
         if (callerUser?.username && `user_${callerUser.username}` !== `user_${callerId}`) {
@@ -410,6 +440,9 @@ export function initSocketServer(
         }
         if (callerUser?.id && `user_${callerUser.id}` !== `user_${callerId}`) {
           callerEmitter = callerEmitter.to(`user_${callerUser.id}`);
+        }
+        if (callerUser?.firebaseUid && `user_${callerUser.firebaseUid}` !== `user_${callerId}`) {
+          callerEmitter = callerEmitter.to(`user_${callerUser.firebaseUid}`);
         }
 
         callerEmitter.emit('call_accepted', {
@@ -433,7 +466,10 @@ export function initSocketServer(
           endedAt: new Date().toISOString(),
         });
 
-        const callerUser = (await db.findUserById(callerId)) || (await db.findUserByFirebaseUid(callerId));
+        const callerUser =
+          (await db.findUserById(callerId)) ||
+          (await db.findUserByFirebaseUid(callerId)) ||
+          (await db.findUserByUsername(callerId));
 
         let rejectEmitter = io.to(`user_${callerId}`);
         if (callerUser?.username && `user_${callerUser.username}` !== `user_${callerId}`) {
@@ -441,6 +477,9 @@ export function initSocketServer(
         }
         if (callerUser?.id && `user_${callerUser.id}` !== `user_${callerId}`) {
           rejectEmitter = rejectEmitter.to(`user_${callerUser.id}`);
+        }
+        if (callerUser?.firebaseUid && `user_${callerUser.firebaseUid}` !== `user_${callerId}`) {
+          rejectEmitter = rejectEmitter.to(`user_${callerUser.firebaseUid}`);
         }
 
         rejectEmitter.emit('call_rejected', {
@@ -459,13 +498,19 @@ export function initSocketServer(
 
     // D. ICE Candidate Exchange
     socket.on('call_ice_candidate', async ({ callId, targetUserId, candidate }) => {
-      const targetUser = (await db.findUserById(targetUserId)) || (await db.findUserByFirebaseUid(targetUserId));
+      const targetUser =
+        (await db.findUserById(targetUserId)) ||
+        (await db.findUserByFirebaseUid(targetUserId)) ||
+        (await db.findUserByUsername(targetUserId));
       let candidateEmitter = io.to(`user_${targetUserId}`);
       if (targetUser?.username && `user_${targetUser.username}` !== `user_${targetUserId}`) {
         candidateEmitter = candidateEmitter.to(`user_${targetUser.username}`);
       }
       if (targetUser?.id && `user_${targetUser.id}` !== `user_${targetUserId}`) {
         candidateEmitter = candidateEmitter.to(`user_${targetUser.id}`);
+      }
+      if (targetUser?.firebaseUid && `user_${targetUser.firebaseUid}` !== `user_${targetUserId}`) {
+        candidateEmitter = candidateEmitter.to(`user_${targetUser.firebaseUid}`);
       }
 
       candidateEmitter.emit('call_ice_candidate', {
@@ -493,13 +538,19 @@ export function initSocketServer(
           durationSeconds: finalDuration,
         });
 
-        const targetUser = (await db.findUserById(targetUserId)) || (await db.findUserByFirebaseUid(targetUserId));
+        const targetUser =
+          (await db.findUserById(targetUserId)) ||
+          (await db.findUserByFirebaseUid(targetUserId)) ||
+          (await db.findUserByUsername(targetUserId));
         let endEmitter = io.to(`user_${targetUserId}`);
         if (targetUser?.username && `user_${targetUser.username}` !== `user_${targetUserId}`) {
           endEmitter = endEmitter.to(`user_${targetUser.username}`);
         }
         if (targetUser?.id && `user_${targetUser.id}` !== `user_${targetUserId}`) {
           endEmitter = endEmitter.to(`user_${targetUser.id}`);
+        }
+        if (targetUser?.firebaseUid && `user_${targetUser.firebaseUid}` !== `user_${targetUserId}`) {
+          endEmitter = endEmitter.to(`user_${targetUser.firebaseUid}`);
         }
 
         endEmitter.emit('call_ended', {

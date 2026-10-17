@@ -20,14 +20,14 @@ import { Platform } from 'react-native';
 export function getSocketUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
     const host = window.location.hostname;
-    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+    if (host) {
       return `${window.location.protocol}//${host}:4000`;
     }
   }
-  if (process.env.EXPO_PUBLIC_SOCKET_URL && !process.env.EXPO_PUBLIC_SOCKET_URL.includes('localhost')) {
+  if (process.env.EXPO_PUBLIC_SOCKET_URL) {
     return process.env.EXPO_PUBLIC_SOCKET_URL;
   }
-  if (process.env.EXPO_PUBLIC_API_URL && !process.env.EXPO_PUBLIC_API_URL.includes('localhost')) {
+  if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
   return 'http://10.160.190.85:4000';
