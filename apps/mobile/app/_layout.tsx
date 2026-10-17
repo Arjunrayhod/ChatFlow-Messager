@@ -11,13 +11,15 @@
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme, Platform } from 'react-native';
+import { useColorScheme, Platform, PermissionsAndroid } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { tokens } from '../src/theme/tokens';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useCallStore } from '../src/store/useCallStore';
 import { IncomingCallModal } from '../src/components/molecules/IncomingCallModal';
 import { ActiveCallModal } from '../src/components/molecules/ActiveCallModal';
+import { MediaPermissionPrompt } from '../src/components/molecules/MediaPermissionPrompt';
+import { webrtcService } from '../src/services/webrtc';
 
 /**
  * Root application navigation stack layout.
@@ -36,6 +38,34 @@ export default function RootLayout() {
       initCallListeners(token);
     }
   }, [token, initCallListeners]);
+
+  // Ask native users for the camera and microphone permissions once the app
+  // session is ready. Web permission requests are handled by a user-tap prompt.
+  useEffect(() => {
+    if (!token) return;
+
+    const requestNativeMediaPermissions = async () => {
+      try {
+        if (Platform.OS === 'android') {
+          const rationale = {
+            title: 'ChatFlow camera and microphone',
+            message: 'Voice/video calls and camera features ke liye Camera aur Microphone allow karein.',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Not now',
+          };
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, rationale);
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, rationale);
+        } else if (Platform.OS === 'ios') {
+          const stream = await webrtcService.getLocalMedia('video');
+          stream?.getTracks().forEach((track) => track.stop());
+        }
+      } catch (error) {
+        console.warn('[Permissions] Could not request media permissions:', error);
+      }
+    };
+
+    void requestNativeMediaPermissions();
+  }, [token]);
 
   // [HINGLISH]: Web par zoom, pinch aur double-tap zoom rokne ke liye event listeners
   useEffect(() => {
@@ -178,6 +208,7 @@ export default function RootLayout() {
       </Stack>
       <IncomingCallModal />
       <ActiveCallModal />
+      <MediaPermissionPrompt enabled={Boolean(token)} />
     </SafeAreaProvider>
   );
 }
