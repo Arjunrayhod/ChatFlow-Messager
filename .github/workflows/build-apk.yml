@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - main
+      - 'codex/**'
     paths:
       - 'apps/mobile/**'
       - 'packages/shared/**'
@@ -94,11 +95,7 @@ jobs:
 
           settings = Path("apps/mobile/android/settings.gradle")
           contents = settings.read_text()
-          contents = re.sub(
-              r"(?m)^[ \t]*includeBuild\s*\([^\r\n]*(?:expoAutolinking\.reactNativeGradlePlugin|reactNativeGradlePlugin|null)[^\r\n]*\)[ \t]*(?:\r?\n|$)",
-              "",
-              contents,
-          )
+
           plugin_package = subprocess.check_output(
               [
                   "node",
@@ -110,15 +107,32 @@ jobs:
           ).strip()
           plugin_dir = Path(plugin_package).parent.resolve()
           if not (plugin_dir / "settings-plugin" / "build.gradle.kts").is_file():
-              raise SystemExit(f"Resolved React Native Gradle plugin is incomplete: {plugin_dir}")
+              raise SystemExit(f"Resolved React Native Gradle plugin is incomplete (missing settings-plugin): {plugin_dir}")
+          if not (plugin_dir / "react-native-gradle-plugin" / "build.gradle.kts").is_file():
+              raise SystemExit(f"Resolved React Native Gradle plugin is incomplete (missing react-native-gradle-plugin): {plugin_dir}")
+
+          # Remove any generated includeBuild calls for the react-native gradle plugin or null
+          contents = re.sub(
+              r"(?m)^[ \t]*includeBuild\s*\([^\r\n]*(?:@react-native/gradle-plugin|expoAutolinking\.reactNativeGradlePlugin|reactNativeGradlePlugin|null)[^\r\n]*\)[ \t]*(?:\r?\n|$)",
+              "",
+              contents,
+          )
+
           plugin_management = re.search(r"pluginManagement\s*\{", contents)
           if not plugin_management:
               raise SystemExit("pluginManagement block was not found in generated settings.gradle")
+
           include_path = plugin_dir.as_posix().replace("'", "\\'")
-          direct_plugin_path = f"\n  includeBuild('{include_path}')\n"
-          contents = contents[:plugin_management.end()] + direct_plugin_path + contents[plugin_management.end():]
+
+          # 1. Include in pluginManagement for settings plugin (com.facebook.react.settings)
+          contents = contents[:plugin_management.end()] + f"\n  includeBuild('{include_path}')\n" + contents[plugin_management.end():]
+
+          # 2. Include in root settings for composite build / buildscript dependencies (com.facebook.react:react-native-gradle-plugin)
+          contents = contents.rstrip() + f"\n\nincludeBuild('{include_path}')\n"
+
           settings.write_text(contents)
           print(f"React Native Gradle settings plugin included from: {plugin_dir}")
+          print(f"React Native Gradle project plugin included from: {plugin_dir}")
           PY
 
       - name: 🛠️ Grant execute permission for Gradle wrapper
