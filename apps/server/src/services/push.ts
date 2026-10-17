@@ -35,7 +35,8 @@ export async function sendIncomingCallPush(call: CallRecord): Promise<void> {
     for (const [index, ticket] of (result.data || []).entries()) {
       if (ticket.status === 'error') {
         logger.warn({ callId: call.id, error: ticket.details?.error || ticket.message }, 'Incoming-call push delivery failed');
-        if (ticket.details?.error === 'DeviceNotRegistered') await db.removePushToken(tokens[index]);
+        const tokenToRemove = tokens[index];
+        if (ticket.details?.error === 'DeviceNotRegistered' && tokenToRemove) await db.removePushToken(tokenToRemove);
       }
     }
   } catch (err) {

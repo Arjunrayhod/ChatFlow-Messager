@@ -81,7 +81,12 @@ callsRouter.get('/:id/offer', requireAuth, async (req: Request, res: Response): 
     res.status(404).json(createErrorResponse('NOT_FOUND', 'User profile not found'));
     return;
   }
-  const pending = await db.getPendingCallOffer(req.params.id, user.id);
+  const callId = req.params.id;
+  if (!callId) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Call ID is required'));
+    return;
+  }
+  const pending = await db.getPendingCallOffer(callId, user.id);
   if (!pending) {
     res.status(404).json(createErrorResponse('NOT_FOUND', 'This call is no longer ringing'));
     return;
