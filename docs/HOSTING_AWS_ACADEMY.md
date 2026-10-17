@@ -1,128 +1,211 @@
-# ChatFlow hosting guide (AWS Academy + free tiers)
+# ChatFlow hosting on AWS Academy (no Render server)
 
-This guide moves ChatFlow from temporary local tunnels to hosted browser and Android builds. It uses the AWS Academy EC2 instance already prepared for Coturn, Cloudflare Pages for the HTTPS web app, Render for the HTTPS API/Socket.IO backend, and the existing GitHub Actions workflow for APK builds.
+This guide keeps the ChatFlow application features and source code unchanged. It moves the existing API and Socket.IO service onto the AWS Academy EC2 instance that already runs Coturn. Cloudflare Pages serves the browser app over HTTPS, and GitHub Actions builds the Android APK.
 
 ## Target setup
 
-| Part | Host | Purpose |
+| Part | Where it runs | What it does |
 | --- | --- | --- |
-| Web app | Cloudflare Pages | Stable HTTPS link for PC and phone browsers |
-| API and Socket.IO | Render Web Service | Login, messaging, call signaling, and TURN credential endpoint |
-| TURN media relay | AWS Academy EC2 + Coturn | Voice/video media when direct WebRTC networking fails |
-| Android APK | GitHub Actions | Build and download `ChatFlow.apk` from the repository |
+| Browser frontend | Cloudflare Pages | Stable HTTPS website for PC and phone browsers |
+| API + Socket.IO | AWS Academy EC2 | Login, chat APIs, call signaling, and TURN credential endpoint |
+| Coturn | Same AWS Academy EC2 | WebRTC audio/video relay |
+| Database | Existing Supabase project | ChatFlow currently uses the Supabase client/data API; no database migration is needed |
+| Android APK | GitHub Actions | Builds the APK using the stable EC2 API URL |
 
-The `trycloudflare.com` Quick Tunnels are for temporary testing. Their addresses change and they stop working when `cloudflared` exits. Stop using them after the hosted URLs work.
+This setup avoids a sleeping Render backend. It is only online while the Academy lab and EC2 instance are running. AWS Academy availability, credits, allowed ports, and shutdown rules depend on the school/account; check its dashboard and budget. EC2 compute, public IPv4, and network usage may use credits or incur charges.
 
-## Before starting
+## Requirements
 
-- Confirm AWS Academy Learner Lab is active and check its remaining credits, allowed EC2 sizes, and lab end time. Academy rules and credits depend on the school/account; a resource that works today may stop when the lab expires or its budget is used.
-- AWS may charge for a running instance, public IPv4 address, data transfer, or other resources. Check the Academy balance and AWS billing page before leaving resources on. AWS documents a public IPv4 free allowance only for eligible Free Tier accounts; do not assume an Academy account qualifies.
-- Keep `TURN_SHARED_SECRET`, Firebase Admin private key, and Supabase service-role key private. Never put them in `apps/mobile/.env`, a GitHub Actions input, or a committed file.
-- Coturn is already installed on the EC2 host at `35.175.156.217`, according to the setup session. If the Academy lab restarts or replaces the instance, re-check the IP and TURN service.
+- The EC2 instance is Ubuntu 24.04 and Coturn is installed.
+- Keep the Elastic IP currently assigned to EC2. It was `35.175.156.217` during the last setup; re-check it in AWS before using it below.
+- A free DuckDNS hostname, for example `chatflow-galaxy.duckdns.org`, pointing to that Elastic IP. DuckDNS describes its service as free dynamic DNS. [DuckDNS](https://www.duckdns.org/)
+- A GitHub checkout of `Arjunrayhod/ChatFlow-Messager` on the EC2 host.
+- Production Firebase Admin and Supabase values from your own provider dashboards.
 
-## 1. Keep Coturn on the AWS Academy EC2 instance
+Do not commit `.env`, private keys, database passwords, or the TURN shared secret. Never put server secrets in Expo `EXPO_PUBLIC_*` variables or in the APK workflow's `backend_url` input.
 
-The EC2 Security Group needs these inbound rules for the current Coturn configuration:
+## 1. Point a free HTTPS hostname at EC2
 
-| Protocol | Port | Source |
-| --- | --- | --- |
-| UDP | 3478 | `0.0.0.0/0` |
-| TCP | 3478 | `0.0.0.0/0` |
-| UDP | 49152–65535 | `0.0.0.0/0` |
-| TCP | 22 (SSH) | My IP only; do not open to everyone |
+1. Sign in to DuckDNS and create a hostname such as `chatflow-galaxy.duckdns.org`.
+2. Set its IPv4 address to the EC2 Elastic IP.
+3. In the AWS Security Group, allow these inbound ports:
 
-Do not add an `All TCP` or `All traffic` rule. Do not open port 5349 unless Coturn TLS is explicitly configured with a valid certificate.
+   | Protocol | Port | Source |
+   | --- | --- | --- |
+   | TCP | 80 | `0.0.0.0/0` (HTTP redirect and certificate validation) |
+   | TCP | 443 | `0.0.0.0/0` (HTTPS website API and Socket.IO) |
+   | UDP | 3478 | `0.0.0.0/0` (Coturn) |
+   | TCP | 3478 | `0.0.0.0/0` (Coturn) |
+   | UDP | 49152–65535 | `0.0.0.0/0` (Coturn media relay range) |
+   | TCP | 22 | **My IP only** (SSH administration) |
 
-On the EC2 Ubuntu terminal, verify Coturn after every restart:
+   Do not add `All TCP` or `All traffic`. Do not expose the API port 4000 publicly; Caddy will proxy it locally. Do not open Coturn TLS port 5349 unless TLS is configured for Coturn.
 
-```bash
-sudo systemctl status coturn --no-pager
-```
+4. Confirm the hostname resolves to the Elastic IP before continuing. If the Academy replaces the IP, update DuckDNS and the Coturn `external-ip` setting.
 
-It should show `active (running)`. The TURN host used by the backend is the EC2 public IP (currently `35.175.156.217`), not the EC2 private IP.
+## 2. Run the ChatFlow API on EC2
 
-## 2. Deploy the API and Socket.IO backend on Render
+Use the EC2 Ubuntu terminal. Run commands as the `ubuntu` user where possible; use `sudo` only for system configuration.
 
-The repository has a `render.yaml` Blueprint for `chatflow-backend`.
+1. Install Git, a supported Node.js LTS version, and pnpm 9. Enable pnpm through Corepack.
+2. Clone the repository into `/opt/chatflow`. If it is private, use a read-only GitHub deploy key; do not put a personal access token into a saved clone URL.
+3. From `/opt/chatflow`, install and build the workspaces:
 
-1. Sign in to Render and create a **Blueprint** from `Arjunrayhod/ChatFlow-Messager`.
-2. Confirm the service is named `chatflow-backend` and choose the Free plan if offered.
-3. In the service's Environment settings, add these production values from your own provider dashboards: `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. Store the Firebase private key with newlines represented as `\n` if the dashboard requires a single-line value.
-4. Add `TURN_HOST=35.175.156.217` and `TURN_SHARED_SECRET` equal to the secret stored on EC2 at `/etc/turnserver.shared-secret`.
-5. Set `TURN_UDP_PORT=3478`, `TURN_TCP_PORT=3478`, and `TURN_TTL_SECONDS=3600`. Keep `TURN_SHARED_SECRET` only in Render's private environment settings and on EC2.
-6. In the Supabase SQL Editor, apply the SQL migration files from `supabase/migrations/` in filename order before using production accounts/data.
-7. Wait for deploy to finish. The Render URL should pass this check:
+   ```bash
+   pnpm install --no-frozen-lockfile
+   pnpm --filter @chatflow/shared build
+   pnpm --filter @chatflow/server build
+   ```
 
-```text
-https://YOUR-RENDER-SERVICE.onrender.com/health
-```
+4. Create the root-only config folder and environment file. `sudo nano` opens an editor; paste the values below and replace every placeholder:
 
-The health response should say `healthy`. Save the service URL; it is the API and Socket.IO URL. Do not include `/health` when setting the base URL.
+   ```bash
+   sudo install -d -o root -g root -m 700 /etc/chatflow
+   sudo nano /etc/chatflow/chatflow.env
+   ```
 
-### Render free-plan caveat
+   ```ini
+   NODE_ENV=production
+   PORT=4000
+   CORS_ORIGIN=https://YOUR-PROJECT.pages.dev
+   FIREBASE_PROJECT_ID=your-firebase-project-id
+   FIREBASE_CLIENT_EMAIL=your-firebase-admin-service-account-email
+   FIREBASE_PRIVATE_KEY="paste-private-key-with-escaped-\n-newlines"
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+   TURN_HOST=chatflow-galaxy.duckdns.org
+   TURN_SHARED_SECRET=the-same-secret-stored-on-EC2-for-coturn
+   TURN_UDP_PORT=3478
+   TURN_TCP_PORT=3478
+   TURN_TTL_SECONDS=3600
+   ```
 
-Render documents that free web services may spin down after 15 minutes without inbound HTTP requests or WebSocket messages, and may take about a minute to wake up. Treat this as a development/demo backend, not a reliable always-on calling service. The backend's local development database is not durable; configure the production Supabase project before using real accounts or data.
+   Replace `YOUR-PROJECT.pages.dev` with the actual Pages hostname after step 4. Save the file, then restrict its permissions:
 
-## 3. Publish the browser app on Cloudflare Pages
+   ```bash
+   sudo chown root:root /etc/chatflow/chatflow.env
+   sudo chmod 600 /etc/chatflow/chatflow.env
+   ```
 
-1. In Cloudflare Dashboard, open **Workers & Pages → Create application → Pages → Connect to Git** and select the GitHub repository.
-2. Use the repository root as the project root.
-3. Set the build command to:
+   The Firebase private key should use literal `\n` separators; the app server converts them to line breaks.
 
-```bash
-corepack enable && corepack prepare pnpm@9 --activate && pnpm install --no-frozen-lockfile && pnpm --filter @chatflow/shared build && pnpm --filter @chatflow/mobile exec expo export --platform web
-```
+5. Add a systemd service so the API starts on boot. Create `/etc/systemd/system/chatflow-api.service` with:
 
-4. Set the build output directory to:
+   ```ini
+   [Unit]
+   Description=ChatFlow API and Socket.IO
+   After=network-online.target
+   Wants=network-online.target
 
-```text
-apps/mobile/dist
-```
+   [Service]
+   Type=simple
+   User=ubuntu
+   WorkingDirectory=/opt/chatflow
+   EnvironmentFile=/etc/chatflow/chatflow.env
+   ExecStart=/usr/bin/node /opt/chatflow/apps/server/dist/index.js
+   Restart=always
+   RestartSec=5
 
-5. Add these build environment variables in Pages, replacing the URL with the Render service URL (no `/health`):
+   [Install]
+   WantedBy=multi-user.target
+   ```
 
-```text
-EXPO_PUBLIC_API_URL=https://YOUR-RENDER-SERVICE.onrender.com
-EXPO_PUBLIC_SOCKET_URL=https://YOUR-RENDER-SERVICE.onrender.com
-```
+   Make sure the `ubuntu` user can read the built project and that the `node` binary is at `/usr/bin/node`. If Node was installed elsewhere, use `command -v node` and put that path in `ExecStart`.
 
-6. Add the app's public client settings as Pages build variables: `EXPO_PUBLIC_FIREBASE_API_KEY`, `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`, `EXPO_PUBLIC_FIREBASE_PROJECT_ID`, `EXPO_PUBLIC_SUPABASE_URL`, and `EXPO_PUBLIC_SUPABASE_ANON_KEY`. `EXPO_PUBLIC_*` values are included in browser code; only use client/public keys there. Never add Firebase Admin private keys or Supabase service-role keys to Pages.
-7. Deploy. Pages provides a stable `https://YOUR-PROJECT.pages.dev` URL. Open that URL on PC and phone; microphone/camera permissions work on HTTPS after the user grants them.
-8. For later updates, push changes to the configured production branch; Pages rebuilds from GitHub.
+6. Save the service file, then reload systemd, enable and start `chatflow-api`:
 
-## 4. Build an Android APK using GitHub Actions
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now chatflow-api
+   sudo systemctl status chatflow-api --no-pager
+   ```
 
-The repository already contains `.github/workflows/build-apk.yml`.
+   The API should listen only on port 4000 internally; check it locally at `http://127.0.0.1:4000/health`.
 
-1. Push the desired code to GitHub.
-2. Open the repository's **Actions → Build Android APK → Run workflow**.
-3. Select the code branch to build.
-4. Enter the stable Render service origin as `backend_url`, for example `https://YOUR-RENDER-SERVICE.onrender.com`. Do not use a temporary Quick Tunnel URL for a long-lived APK.
-5. Start the workflow and wait for it to finish successfully.
-6. Open the completed run and download the `ChatFlow-Android-APK` artifact. It contains `ChatFlow.apk`.
+## 3. Add HTTPS and WebSocket proxy with Caddy
 
-The APK uses the same API and Socket.IO base URL. TURN credentials are fetched securely from the backend at runtime; the shared TURN secret must never be built into the APK.
+1. Install Caddy using its official Ubuntu instructions: [Caddy install](https://caddyserver.com/docs/install).
+2. Edit `/etc/caddy/Caddyfile` and replace the hostname:
 
-## 5. Verify browser and APK calls
+   ```caddyfile
+   chatflow-galaxy.duckdns.org {
+       reverse_proxy 127.0.0.1:4000
+   }
+   ```
 
-1. Confirm the Render `/health` endpoint is healthy.
-2. Confirm Coturn is `active (running)` on EC2 and its Security Group has the TURN ports above.
-3. Open the Cloudflare Pages HTTPS link on PC and phone and sign in.
-4. Grant microphone permission on both devices. Test a call in both directions and check two-way audio.
-5. If the call still fails, verify the API's authenticated `/api/calls/ice-servers` response reports `relayConfigured: true`; do not share its credential fields publicly.
-6. Install the GitHub Actions APK and repeat the call test. A web reload cannot add native WebRTC modules to an already-built APK; rebuild after native dependency or permission changes.
+3. Validate and reload Caddy:
 
-## Free-tier limits and cleanup
+   ```bash
+   sudo caddy validate --config /etc/caddy/Caddyfile
+   sudo systemctl reload caddy
+   ```
 
-- Cloudflare Pages can provide a stable HTTPS static-site URL on its free plan, subject to Cloudflare's current limits and terms.
-- Render Free is suitable for demos, but its sleep/wake behavior can delay calls. Check the current Render usage and billing dashboard.
-- AWS Academy is not a universal free production host. Its allowed services, credits, and session lifetime are controlled by the institution. Stop the EC2 instance when not needed if the Academy rules require it, and check whether stopping it affects the Elastic IP or Coturn availability.
-- Never expose SSH (port 22) to `0.0.0.0/0`. Do not commit `.env`, PEM keys, TURN shared secrets, or provider service-role keys.
+   When the hostname points to EC2 and inbound TCP ports 80 and 443 reach Caddy, it obtains and renews a public HTTPS certificate automatically. Caddy's reverse proxy supports WebSocket upgrades, which Socket.IO needs. [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https) · [Caddy WebSocket proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+4. Verify in a browser:
 
-## Official references
+   ```text
+   https://chatflow-galaxy.duckdns.org/health
+   ```
 
-- [Expo: publishing web apps](https://docs.expo.dev/guides/publishing-websites/)
-- [Cloudflare Pages: React deployment](https://developers.cloudflare.com/pages/framework-guides/deploy-a-react-site/)
-- [Render: free service limits](https://render.com/docs/free)
-- [Render: WebSockets](https://render.com/docs/websocket)
-- [AWS: public IPv4 and VPC information](https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html)
+   The response should say `healthy`. Do not use `http://EC2-IP:4000` in the web app.
+
+## 4. Publish the browser app on Cloudflare Pages
+
+1. In Cloudflare Dashboard, go to **Workers & Pages → Create application → Pages → Connect to Git** and select `Arjunrayhod/ChatFlow-Messager`.
+2. Set the repository root as the project root and use this build command:
+
+   ```bash
+   corepack enable && corepack prepare pnpm@9 --activate && pnpm install --no-frozen-lockfile && pnpm --filter @chatflow/shared build && pnpm --filter @chatflow/mobile exec expo export --platform web
+   ```
+
+3. Set the output directory to `apps/mobile/dist`.
+4. Add these Pages build variables, replacing the hostname with the one from step 1:
+
+   ```text
+   EXPO_PUBLIC_API_URL=https://chatflow-galaxy.duckdns.org
+   EXPO_PUBLIC_SOCKET_URL=https://chatflow-galaxy.duckdns.org
+   EXPO_PUBLIC_FIREBASE_API_KEY=your-firebase-web-api-key
+   EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-firebase-auth-domain
+   EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-firebase-project-id
+   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-public-anon-key
+   ```
+
+   `EXPO_PUBLIC_*` values are bundled into the public website; only client/public keys belong here. Do not add Firebase Admin or Supabase service-role secrets.
+
+5. Deploy. Cloudflare Pages gives a persistent HTTPS `*.pages.dev` browser URL. Open the same URL on PC and phone; no local Expo or Quick Tunnel terminal is needed. Microphone/camera permission prompts still require the user to allow access.
+
+## 5. Build the APK from GitHub
+
+The existing `.github/workflows/build-apk.yml` workflow builds the Android APK.
+
+1. Push the desired project branch to GitHub.
+2. Open **Actions → Build Android APK → Run workflow** and select that branch.
+3. Set `backend_url` to `https://chatflow-galaxy.duckdns.org` (origin only; no `/health`). Never put TURN or database secrets in the workflow input.
+4. When the workflow succeeds, download the `ChatFlow-Android-APK` artifact. Install that APK on Android and test sign-in, chat, and calls.
+
+## 6. Verify and maintain
+
+1. Confirm `https://chatflow-galaxy.duckdns.org/health` returns healthy.
+2. Confirm both `chatflow-api` and `coturn` show `active (running)` on EC2.
+3. Confirm the authenticated `/api/calls/ice-servers` response includes `relayConfigured: true`. Do not share the generated TURN credential values.
+4. Test browser-to-browser, browser-to-APK, and APK-to-APK calls in both directions.
+5. To deploy server updates: pull the chosen GitHub branch, rebuild shared/server, then restart `chatflow-api`. To deploy browser updates, push the branch configured in Pages. Rebuild the APK after native dependency or permission changes.
+
+## Academy/free-tier limits
+
+- DuckDNS and Cloudflare Pages offer free options, subject to their current limits and terms.
+- The AWS Academy lab may suspend/stop instances, restrict port access, or expire credits at course-defined times. An EC2 shutdown disconnects the API, Socket.IO, and Coturn together; the Pages website may still load but login/calls will fail.
+- AWS compute, Elastic IP/public IPv4, and data transfer usage may consume credits or cost money. Check the Academy and AWS billing/usage screens. Do not assume the EC2 setup is permanently free or always on.
+- Keep SSH restricted to your IP, keep the TURN relay ports only as required, and never publish private environment files or key material.
+
+## References
+
+- [DuckDNS free dynamic DNS](https://www.duckdns.org/)
+- [AWS EC2 web server security-group ports](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/security-group-rules-reference.html)
+- [Caddy installation](https://caddyserver.com/docs/install)
+- [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https)
+- [Caddy reverse proxy and WebSockets](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+- [Expo web publishing](https://docs.expo.dev/guides/publishing-websites/)
+- [Cloudflare Pages React deployment](https://developers.cloudflare.com/pages/framework-guides/deploy-a-react-site/)
+- [AWS public IPv4 information](https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html)
