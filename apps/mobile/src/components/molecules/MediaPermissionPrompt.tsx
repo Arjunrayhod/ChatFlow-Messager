@@ -49,7 +49,7 @@ export function MediaPermissionPrompt({ enabled }: { enabled: boolean }) {
   const requestMedia = useCallback(async () => {
     setError(null);
     if (!isSecureContext) {
-      setError('Phone browser mein camera aur mic ke liye HTTPS link zaroori hai. Local IP/HTTP par browser inhe block karta hai.');
+      setError('Browser local IP/HTTP par camera aur mic block karta hai. PC par http://localhost:8081 kholen; phone par HTTPS link use karein.');
       return;
     }
 
@@ -99,7 +99,7 @@ export function MediaPermissionPrompt({ enabled }: { enabled: boolean }) {
             </Pressable>
           ) : (
             <Text variant="caption" style={styles.error}>
-              Phone browser mein permission lene ke liye ChatFlow ko HTTPS link se kholen.
+              PC par http://localhost:8081 kholen; phone par permission ke liye ChatFlow ko HTTPS link se kholen.
             </Text>
           )}
           <Pressable style={styles.laterButton} onPress={dismiss} accessibilityRole="button">

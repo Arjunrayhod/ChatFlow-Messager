@@ -76,12 +76,12 @@ export interface CallStoreState {
 
 let timerInterval: any = null;
 let callAuthToken = '';
-const PHONE_BROWSER_HTTPS_ERROR =
-  'Phone browser calling ke liye HTTPS zaroori hai. Local IP/HTTP se microphone access blocked hai; HTTPS link ya APK use karein.';
+const WEB_MEDIA_HTTPS_ERROR =
+  'Browser calling ke liye secure URL zaroori hai. PC par http://localhost:8081 kholen; phone par HTTPS link ya APK use karein.';
 
 function getWebMediaSecurityError(): string | null {
   if (Platform.OS === 'web' && typeof window !== 'undefined' && !window.isSecureContext) {
-    return PHONE_BROWSER_HTTPS_ERROR;
+    return WEB_MEDIA_HTTPS_ERROR;
   }
   return null;
 }
