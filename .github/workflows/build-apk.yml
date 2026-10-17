@@ -86,16 +86,14 @@ jobs:
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --clean --no-install
 
-      - name: 🔧 Resolve React Native Gradle plugin path
+      - name: 🔧 Configure Android Gradle build
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
           import subprocess
 
-          settings = Path("apps/mobile/android/settings.gradle")
-          contents = settings.read_text()
-
+          # 1. Resolve React Native Gradle plugin path
           plugin_package = subprocess.check_output(
               [
                   "node",
@@ -111,7 +109,9 @@ jobs:
           if not (plugin_dir / "react-native-gradle-plugin" / "build.gradle.kts").is_file():
               raise SystemExit(f"Resolved React Native Gradle plugin is incomplete (missing react-native-gradle-plugin): {plugin_dir}")
 
-          # Remove any generated includeBuild calls for the react-native gradle plugin or null
+          # 2. Update settings.gradle with valid includeBuild in both pluginManagement and root
+          settings = Path("apps/mobile/android/settings.gradle")
+          contents = settings.read_text()
           contents = re.sub(
               r"(?m)^[ \t]*includeBuild\s*\([^\r\n]*(?:@react-native/gradle-plugin|expoAutolinking\.reactNativeGradlePlugin|reactNativeGradlePlugin|null)[^\r\n]*\)[ \t]*(?:\r?\n|$)",
               "",
@@ -133,6 +133,15 @@ jobs:
           settings.write_text(contents)
           print(f"React Native Gradle settings plugin included from: {plugin_dir}")
           print(f"React Native Gradle project plugin included from: {plugin_dir}")
+
+          # 3. Configure gradle.properties for adequate memory and disable Jetifier
+          props_path = Path("apps/mobile/android/gradle.properties")
+          if props_path.is_file():
+              props = props_path.read_text()
+              props = re.sub(r"(?m)^org\.gradle\.jvmargs=.*$", "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m", props)
+              props = re.sub(r"(?m)^android\.enableJetifier=.*$", "android.enableJetifier=false", props)
+              props_path.write_text(props)
+              print("Configured gradle.properties: 4GB heap and android.enableJetifier=false")
           PY
 
       - name: 🛠️ Grant execute permission for Gradle wrapper
@@ -141,6 +150,8 @@ jobs:
 
       - name: 📱 Assemble Android APK (Direct Install)
         working-directory: apps/mobile/android
+        env:
+          GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: 🏷️ Prepare APK artifact
