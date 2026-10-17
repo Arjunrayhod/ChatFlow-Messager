@@ -263,17 +263,12 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
           ...activeCall,
           status: 'ended',
         },
+        localStream: null,
+        remoteStream: null,
       });
-
-      setTimeout(() => {
-        webrtcService.destroy();
-        set({
-          activeCall: null,
-          localStream: null,
-          remoteStream: null,
-          callDuration: 0,
-        });
-      }, 1500);
+      // Release microphone/camera tracks immediately, but leave the ended-call
+      // screen visible so the user can dismiss it with the call control.
+      webrtcService.destroy();
     });
 
     // G. Call Missed

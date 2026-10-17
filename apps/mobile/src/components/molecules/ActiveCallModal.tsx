@@ -374,9 +374,14 @@ export function ActiveCallModal() {
               style={[styles.controlButton, styles.endCallButton]}
               onPress={endCall}
               accessibilityRole="button"
-              accessibilityLabel="End call"
+              accessibilityLabel={activeCall.status === 'ended' ? 'Dismiss call' : 'End call'}
             >
-              <Ionicons name="call" size={28} color="#FFFFFF" style={styles.endCallIcon} />
+              <Ionicons
+                name={activeCall.status === 'ended' ? 'close' : 'call'}
+                size={28}
+                color="#FFFFFF"
+                style={activeCall.status === 'ended' ? undefined : styles.endCallIcon}
+              />
             </Pressable>
           </View>
         </View>
