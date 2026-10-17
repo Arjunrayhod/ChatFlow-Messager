@@ -56,4 +56,19 @@ TURN_TTL_SECONDS=3600
 
 Keep `TURN_SHARED_SECRET` on the server only. The authenticated `/api/calls/ice-servers` endpoint creates short-lived per-user credentials for the browser and APK. Until the relay is configured, the app falls back to STUN; calls can fail on networks that require relaying.
 
+A ready-to-run Coturn configuration is provided in `coturn/turnserver.conf` and `coturn/docker-compose.yml`. You can spin up a dedicated relay on any cloud server or VPS with:
+```bash
+cd coturn
+docker compose up -d
+```
+
+### Mobile Production Build Environment
+
+In `apps/mobile/.env` and GitHub Actions (`.github/workflows/build-apk.yml`), the mobile app points to your production HTTPS backend:
+```env
+EXPO_PUBLIC_API_URL=https://chatflow-backend.onrender.com
+EXPO_PUBLIC_SOCKET_URL=https://chatflow-backend.onrender.com
+```
+Secrets like `TURN_SHARED_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` are strictly excluded from the mobile build.
+
 The Android build workflow generates the native project and APK. After adding or changing native dependencies, generate a new APK; an already-installed APK cannot gain native WebRTC support through a web reload.

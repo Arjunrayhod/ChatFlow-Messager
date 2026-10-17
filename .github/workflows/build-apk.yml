@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       backend_url:
-        description: 'Production Backend URL (e.g. https://chatflow-backend.onrender.com)'
+        description: 'Production Backend URL'
         required: false
-        default: ''
+        default: 'https://chatflow-backend.onrender.com'
   push:
     branches:
       - main
@@ -46,13 +46,18 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
-      - name: ⚙️ Configure Backend URL (if specified)
+      - name: ⚙️ Configure Production Mobile Build Environment
         run: |
-          if [ -n "${{ inputs.backend_url }}" ]; then
-            echo "Setting EXPO_PUBLIC_API_URL=${{ inputs.backend_url }}"
-            echo "EXPO_PUBLIC_API_URL=${{ inputs.backend_url }}" >> apps/mobile/.env
-            echo "EXPO_PUBLIC_SOCKET_URL=${{ inputs.backend_url }}" >> apps/mobile/.env
+          TARGET_URL="${{ inputs.backend_url }}"
+          if [ -z "$TARGET_URL" ]; then
+            TARGET_URL="https://chatflow-backend.onrender.com"
           fi
+          echo "Setting mobile build environment to production: $TARGET_URL"
+          touch apps/mobile/.env
+          grep -v '^EXPO_PUBLIC_API_URL=' apps/mobile/.env | grep -v '^EXPO_PUBLIC_SOCKET_URL=' > apps/mobile/.env.tmp || true
+          mv apps/mobile/.env.tmp apps/mobile/.env
+          echo "EXPO_PUBLIC_API_URL=$TARGET_URL" >> apps/mobile/.env
+          echo "EXPO_PUBLIC_SOCKET_URL=$TARGET_URL" >> apps/mobile/.env
 
       - name: 📥 Install dependencies
         run: pnpm install --no-frozen-lockfile

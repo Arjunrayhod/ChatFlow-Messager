@@ -12,3 +12,15 @@ services:
         value: production
       - key: CORS_ORIGIN
         value: "*"
+      - key: TURN_HOST
+        sync: false
+      - key: TURN_SHARED_SECRET
+        sync: false
+      - key: TURN_UDP_PORT
+        value: "3478"
+      - key: TURN_TCP_PORT
+        value: "3478"
+      - key: TURNS_PORT
+        value: "5349"
+      - key: TURN_TTL_SECONDS
+        value: "3600"
