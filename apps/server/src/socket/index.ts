@@ -22,6 +22,7 @@ import {
 import { logger } from '../utils/logger';
 import { db } from '../services/db';
 import { verifyAuthToken } from '../middlewares/auth';
+import { sendIncomingCallPush } from '../services/push';
 
 interface SocketData {
   userId: string;
@@ -347,7 +348,7 @@ export function initSocketServer(
           durationSeconds: 0,
         };
 
-        await db.createCallRecord(newCall);
+        await db.createCallRecord(newCall, sdp);
 
         // Acknowledge caller that ringing has started
         socket.emit('call_ringing', { callId, receiverId });
@@ -379,6 +380,7 @@ export function initSocketServer(
           type,
           sdp,
         });
+        void sendIncomingCallPush(newCall);
         // The caller must not relay trickled ICE candidates until the call record
         // exists; otherwise fast candidates can arrive here and be silently dropped.
         acknowledge?.({ ok: true });

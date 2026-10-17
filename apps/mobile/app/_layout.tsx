@@ -20,6 +20,8 @@ import { IncomingCallModal } from '../src/components/molecules/IncomingCallModal
 import { ActiveCallModal } from '../src/components/molecules/ActiveCallModal';
 import { MediaPermissionPrompt } from '../src/components/molecules/MediaPermissionPrompt';
 import { webrtcService } from '../src/services/webrtc';
+import * as Notifications from 'expo-notifications';
+import { registerForIncomingCallPush } from '../src/services/notifications';
 
 /**
  * Root application navigation stack layout.
@@ -31,13 +33,31 @@ export default function RootLayout() {
 
   const token = useAuthStore((state) => state.token);
   const initCallListeners = useCallStore((state) => state.initCallListeners);
+  const handleIncomingCallPush = useCallStore((state) => state.handleIncomingCallPush);
 
   // Initialize WebRTC calling socket listeners
   useEffect(() => {
     if (token) {
       initCallListeners(token);
+      void registerForIncomingCallPush(token).catch((error) => {
+        console.warn('[Push] Could not register this device:', error);
+      });
     }
   }, [token, initCallListeners]);
+
+  useEffect(() => {
+    if (!token) return;
+    const openIncomingCall = (response: Notifications.NotificationResponse | null) => {
+      if (response?.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+      const data = response.notification.request.content.data as { type?: string; callId?: string };
+      if (data.type === 'incoming_call' && data.callId) {
+        void handleIncomingCallPush(token, data.callId);
+      }
+    };
+    const subscription = Notifications.addNotificationResponseReceivedListener(openIncomingCall);
+    void Notifications.getLastNotificationResponseAsync().then(openIncomingCall);
+    return () => subscription.remove();
+  }, [token, handleIncomingCallPush]);
 
   // Ask native users for the camera and microphone permissions once the app
   // session is ready. Web permission requests are handled by a user-tap prompt.

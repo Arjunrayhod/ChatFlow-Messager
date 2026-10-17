@@ -27,7 +27,9 @@
         "RECORD_AUDIO",
         "MODIFY_AUDIO_SETTINGS",
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
       ]
     },
     "web": {
@@ -36,6 +38,7 @@
     },
     "plugins": [
       "expo-router",
+      ["expo-notifications", { "color": "#008f72", "defaultChannel": "incoming-calls" }],
       ["@config-plugins/react-native-webrtc", {"cameraPermission": "Allow ChatFlow to use your camera for video calls.", "microphonePermission": "Allow ChatFlow to use your microphone for calls."}]
     ],
     "scheme": "chatflow"

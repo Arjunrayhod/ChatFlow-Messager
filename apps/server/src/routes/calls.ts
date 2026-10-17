@@ -74,6 +74,31 @@ callsRouter.get('/', requireAuth, async (req: Request, res: Response): Promise<v
   }
 });
 
+/** Fetches a short-lived incoming offer after the user taps a call notification. */
+callsRouter.get('/:id/offer', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = await db.findUserByFirebaseUid(req.uid);
+  if (!user) {
+    res.status(404).json(createErrorResponse('NOT_FOUND', 'User profile not found'));
+    return;
+  }
+  const pending = await db.getPendingCallOffer(req.params.id, user.id);
+  if (!pending) {
+    res.status(404).json(createErrorResponse('NOT_FOUND', 'This call is no longer ringing'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse({
+    callId: pending.call.id,
+    caller: {
+      id: pending.call.callerId,
+      username: pending.call.callerUsername,
+      displayName: pending.call.callerDisplayName,
+      avatarUrl: pending.call.callerAvatarUrl,
+    },
+    type: pending.call.type,
+    sdp: pending.sdp,
+  }));
+});
+
 /**
  * DELETE /api/calls/:id
  * Deletes a single call record.

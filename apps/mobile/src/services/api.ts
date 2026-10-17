@@ -712,3 +712,40 @@ export async function clearCallHistory(
     return createErrorResponse('INTERNAL_ERROR', message);
   }
 }
+
+export interface IncomingCallOffer {
+  callId: string;
+  caller: import('@chatflow/shared').CallParticipant;
+  type: import('@chatflow/shared').CallType;
+  sdp: unknown;
+}
+
+export async function getIncomingCallOffer(token: string, callId: string): Promise<ApiResponse<IncomingCallOffer>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/calls/${encodeURIComponent(callId)}/offer`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    return createErrorResponse('INTERNAL_ERROR', error instanceof Error ? error.message : 'Could not load incoming call');
+  }
+}
+
+export async function registerPushToken(token: string, pushToken: string, platform: 'ios' | 'android'): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/users/push-token`, {
+    method: 'PUT',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ token: pushToken, platform }),
+  });
+  if (!response.ok) throw new Error(`Push token registration failed (${response.status})`);
+}
+
+export async function unregisterPushToken(token: string, pushToken: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/users/push-token`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ token: pushToken }),
+  });
+  if (!response.ok) throw new Error(`Push token removal failed (${response.status})`);
+}

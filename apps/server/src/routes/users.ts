@@ -60,6 +60,45 @@ const searchQuerySchema = z.object({
   q: z.string().trim().min(1, 'Search query is required').max(50),
 });
 
+const pushTokenSchema = z.object({
+  token: z.string().trim().min(20).max(512).regex(/^(Exponent|Expo)PushToken\[[^\]]+\]$/),
+  platform: z.enum(['ios', 'android']),
+});
+
+usersRouter.put('/push-token', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const parsed = pushTokenSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Invalid Expo push token'));
+    return;
+  }
+  const user = await db.findUserByFirebaseUid(req.uid);
+  if (!user) {
+    res.status(404).json(createErrorResponse('NOT_FOUND', 'User profile not found. Complete onboarding first.'));
+    return;
+  }
+  try {
+    await db.savePushToken(user.id, parsed.data.token, parsed.data.platform);
+    res.status(200).json(createSuccessResponse({ registered: true }));
+  } catch {
+    res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Could not register push notifications'));
+  }
+});
+
+usersRouter.delete('/push-token', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const parsed = z.object({ token: pushTokenSchema.shape.token }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Invalid Expo push token'));
+    return;
+  }
+  const user = await db.findUserByFirebaseUid(req.uid);
+  if (!user) {
+    res.status(404).json(createErrorResponse('NOT_FOUND', 'User profile not found'));
+    return;
+  }
+  await db.removePushToken(parsed.data.token, user.id);
+  res.status(200).json(createSuccessResponse({ removed: true }));
+});
+
 /**
  * GET /api/users/search?q=...
  * Search users by unique @username or display name.

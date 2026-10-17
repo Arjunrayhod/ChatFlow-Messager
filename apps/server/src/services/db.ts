@@ -53,6 +53,8 @@ export class DatabaseService {
   private memoryStatusViews: Map<string, StatusViewer[]> = new Map();
   // In-memory calls store: callId -> CallRecord
   private memoryCalls: Map<string, CallRecord> = new Map();
+  private memoryCallOffers: Map<string, unknown> = new Map();
+  private memoryPushTokens: Map<string, Map<string, 'ios' | 'android'>> = new Map();
 
   constructor() {
     if (
@@ -1501,8 +1503,9 @@ export class DatabaseService {
    * Persists a new Call Record (Dual-Mode: in-memory and Supabase).
    * Strict adherence to RULE 0.1: No phone numbers stored.
    */
-  async createCallRecord(call: CallRecord): Promise<CallRecord> {
+  async createCallRecord(call: CallRecord, offerSdp?: unknown): Promise<CallRecord> {
     this.memoryCalls.set(call.id, call);
+    if (offerSdp !== undefined) this.memoryCallOffers.set(call.id, offerSdp);
 
     if (this.supabase) {
       try {
@@ -1522,6 +1525,7 @@ export class DatabaseService {
           answered_at: call.answeredAt || null,
           ended_at: call.endedAt || null,
           duration_seconds: call.durationSeconds,
+          offer_sdp: offerSdp ?? null,
         });
       } catch (err) {
         logger.warn({ err, callId: call.id }, 'Supabase createCallRecord error, saved to memory');
@@ -1539,6 +1543,7 @@ export class DatabaseService {
     if (existing) {
       const updated = { ...existing, ...updates };
       this.memoryCalls.set(callId, updated);
+      if (updates.status && updates.status !== 'ringing') this.memoryCallOffers.delete(callId);
 
       if (this.supabase) {
         try {
@@ -1547,6 +1552,7 @@ export class DatabaseService {
           if (updates.answeredAt) dbUpdates.answered_at = updates.answeredAt;
           if (updates.endedAt) dbUpdates.ended_at = updates.endedAt;
           if (typeof updates.durationSeconds === 'number') dbUpdates.duration_seconds = updates.durationSeconds;
+          if (updates.status && updates.status !== 'ringing') dbUpdates.offer_sdp = null;
 
           await this.supabase.from('calls').update(dbUpdates).eq('id', callId);
         } catch (err) {
@@ -1564,6 +1570,7 @@ export class DatabaseService {
         if (updates.answeredAt) dbUpdates.answered_at = updates.answeredAt;
         if (updates.endedAt) dbUpdates.ended_at = updates.endedAt;
         if (typeof updates.durationSeconds === 'number') dbUpdates.duration_seconds = updates.durationSeconds;
+        if (updates.status && updates.status !== 'ringing') dbUpdates.offer_sdp = null;
 
         const { data, error } = await this.supabase
           .from('calls')
@@ -1608,6 +1615,72 @@ export class DatabaseService {
     }
 
     return null;
+  }
+
+  async getPendingCallOffer(callId: string, receiverId: string): Promise<{ call: CallRecord; sdp: unknown } | null> {
+    const memoryCall = this.memoryCalls.get(callId);
+    if (memoryCall && memoryCall.receiverId === receiverId && memoryCall.status === 'ringing') {
+      const sdp = this.memoryCallOffers.get(callId);
+      if (sdp !== undefined && Date.now() - Date.parse(memoryCall.startedAt) < 120_000) return { call: memoryCall, sdp };
+    }
+
+    if (this.supabase) {
+      try {
+        const { data, error } = await this.supabase
+          .from('calls')
+          .select('*')
+          .eq('id', callId)
+          .eq('receiver_id', receiverId)
+          .eq('status', 'ringing')
+          .maybeSingle();
+        if (!error && data?.offer_sdp && Date.now() - Date.parse(String(data.started_at)) < 120_000) {
+          return { call: this.mapDbCallToEntity(data), sdp: data.offer_sdp };
+        }
+        if (error) logger.warn({ error, callId }, 'Supabase pending call offer lookup failed');
+      } catch (err) {
+        logger.warn({ err, callId }, 'Supabase pending call offer lookup exception');
+      }
+    }
+    return null;
+  }
+
+  async savePushToken(userId: string, token: string, platform: 'ios' | 'android'): Promise<void> {
+    const tokens = this.memoryPushTokens.get(userId) || new Map<string, 'ios' | 'android'>();
+    tokens.set(token, platform);
+    this.memoryPushTokens.set(userId, tokens);
+    if (!this.supabase) return;
+
+    const { error } = await this.supabase.from('push_tokens').upsert(
+      { user_id: userId, expo_push_token: token, platform, updated_at: new Date().toISOString() },
+      { onConflict: 'expo_push_token' }
+    );
+    if (error) throw error;
+  }
+
+  async getPushTokens(userId: string): Promise<string[]> {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('push_tokens').select('expo_push_token').eq('user_id', userId);
+      if (error) {
+        logger.warn({ error, userId }, 'Supabase push token lookup failed');
+      } else {
+        return (data || []).map((row) => String(row.expo_push_token));
+      }
+    }
+    return Array.from(this.memoryPushTokens.get(userId)?.keys() || []);
+  }
+
+  async removePushToken(token: string, userId?: string): Promise<void> {
+    for (const [ownerId, tokens] of this.memoryPushTokens) {
+      if (userId && ownerId !== userId) continue;
+      tokens.delete(token);
+      if (tokens.size === 0) this.memoryPushTokens.delete(ownerId);
+    }
+    if (this.supabase) {
+      let query = this.supabase.from('push_tokens').delete().eq('expo_push_token', token);
+      if (userId) query = query.eq('user_id', userId);
+      const { error } = await query;
+      if (error) logger.warn({ error }, 'Supabase push token cleanup failed');
+    }
   }
 
   /**

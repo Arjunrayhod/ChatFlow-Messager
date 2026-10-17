@@ -35,6 +35,7 @@ import {
   getCalls,
   deleteCallRecord,
   clearCallHistory,
+  getIncomingCallOffer,
 } from '../services/api';
 
 export interface ActiveCall {
@@ -62,6 +63,7 @@ export interface CallStoreState {
 
   // Actions
   initCallListeners: (token: string) => void;
+  handleIncomingCallPush: (token: string, callId: string) => Promise<void>;
   startCall: (partner: CallParticipant, type: CallType) => Promise<void>;
   answerCall: () => Promise<void>;
   rejectCall: (reason?: string) => void;
@@ -282,6 +284,21 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         callDuration: 0,
       });
     });
+  },
+
+  handleIncomingCallPush: async (token, callId) => {
+    const { activeCall } = get();
+    if (activeCall?.callId === callId) return;
+    const response = await getIncomingCallOffer(token, callId);
+    if (!response.ok) return;
+    const { callId: id, caller, type, sdp } = response.data;
+    const current = get().activeCall;
+    if (current && current.status !== 'idle' && current.status !== 'ended') return;
+    set({
+      activeCall: { callId: id, partner: caller, type, status: 'ringing', direction: 'incoming', incomingSdp: sdp },
+      callDuration: 0,
+    });
+    ringtoneService.startIncomingRingtone();
   },
 
   /**
