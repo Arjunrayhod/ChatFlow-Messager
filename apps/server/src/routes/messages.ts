@@ -24,6 +24,12 @@ const sendMessageSchema = z.object({
   replyToId: z.string().optional(),
 });
 
+const editMessageSchema = z.object({ content: z.string().trim().min(1).max(4000) });
+const disappearingSchema = z.object({ seconds: z.union([z.literal(0), z.literal(86400), z.literal(604800), z.literal(7776000)]) });
+const expenseSchema = z.object({ title: z.string().trim().min(1).max(100), amount: z.number().positive().max(100000000), paidBy: z.string().min(1), splitBetween: z.array(z.string().min(1)).min(1).max(50) });
+const taskSchema = z.object({ title: z.string().trim().min(1).max(120), body: z.string().max(1000).nullable().optional(), assignedTo: z.string().nullable().optional(), dueAt: z.string().datetime().nullable().optional() });
+const scheduleSchema = z.object({ content: z.string().trim().min(1).max(4000), sendAt: z.string().datetime() });
+
 /**
  * GET /api/messages/:chatId
  * Fetches message history for a conversation.
@@ -32,7 +38,7 @@ messagesRouter.get(
   '/:chatId',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const { chatId } = req.params;
+    const { chatId = '' } = req.params;
     if (!chatId) {
       res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'chatId parameter is required'));
       return;
@@ -44,7 +50,7 @@ messagesRouter.get(
       return;
     }
 
-    const messages = await db.getMessages(chatId, 100);
+    const messages = await db.getMessages(chatId, 100, currentUser.id);
 
     // Normalize legacy senderIds (dev UIDs or email keys) to canonical user IDs
     const normalizedMessages = await Promise.all(
@@ -63,6 +69,196 @@ messagesRouter.get(
   }
 );
 
+messagesRouter.get('/:chatId/preferences', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const chatId = req.params.chatId || '';
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse({ disappearingSeconds: await db.getChatDisappearingSeconds(chatId) }));
+});
+
+messagesRouter.put('/:chatId/preferences', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const chatId = req.params.chatId || '';
+  const parsed = disappearingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Choose 24 hours, 7 days, 90 days, or off'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  await db.setChatDisappearingSeconds(chatId, currentUser.id, parsed.data.seconds);
+  res.status(200).json(createSuccessResponse({ disappearingSeconds: parsed.data.seconds }));
+});
+
+messagesRouter.put('/:chatId/:messageId', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '', messageId = '' } = req.params;
+  const parsed = editMessageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Message text must be between 1 and 4000 characters'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  const message = await db.editMessage(chatId, messageId, currentUser.id, parsed.data.content);
+  if (!message) {
+    res.status(409).json(createErrorResponse('VALIDATION_FAILED', 'Only your own messages can be edited within 15 minutes'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse(message));
+});
+
+messagesRouter.put('/:chatId/:messageId/pin', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '', messageId = '' } = req.params;
+  const pinned = z.object({ pinned: z.boolean() }).safeParse(req.body);
+  if (!pinned.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Pinned state is required'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  const updated = await db.setMessagePinned(chatId, messageId, currentUser.id, pinned.data.pinned);
+  if (!updated) {
+    res.status(404).json(createErrorResponse('NOT_FOUND', 'Message does not exist in this chat'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse({ messageId, pinned: pinned.data.pinned }));
+});
+
+messagesRouter.put('/:chatId/:messageId/hide', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '', messageId = '' } = req.params;
+  const hidden = z.object({ hidden: z.boolean() }).safeParse(req.body);
+  if (!hidden.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Hidden state is required'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  const updated = await db.hideMessageFor(chatId, messageId, currentUser.id, hidden.data.hidden);
+  if (!updated) {
+    res.status(404).json(createErrorResponse('NOT_FOUND', 'Message does not exist in this chat'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse({ messageId, hidden: hidden.data.hidden }));
+});
+
+messagesRouter.get('/:chatId/expenses', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '' } = req.params;
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse(await db.getChatExpenses(chatId)));
+});
+
+messagesRouter.post('/:chatId/expenses', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '' } = req.params;
+  const parsed = expenseSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Enter a title, amount, payer, and participants'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  const participants = [...new Set(parsed.data.splitBetween)];
+  if (!participants.includes(parsed.data.paidBy) || !(await Promise.all(participants.map((id) => db.canAccessChat(chatId, id)))).every(Boolean)) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Payer and split members must belong to this chat'));
+    return;
+  }
+  const expense = await db.createChatExpense({ chatId, createdBy: currentUser.id, title: parsed.data.title,
+    amount: parsed.data.amount, currency: 'INR', paidBy: parsed.data.paidBy, splitBetween: participants });
+  res.status(201).json(createSuccessResponse(expense));
+});
+
+messagesRouter.get('/:chatId/tasks', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '' } = req.params;
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse(await db.getChatTasks(chatId)));
+});
+
+messagesRouter.post('/:chatId/tasks', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '' } = req.params;
+  const parsed = taskSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Enter a task title and a valid assignee'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  const assignedTo = parsed.data.assignedTo || null;
+  if (assignedTo && !(await db.canAccessChat(chatId, assignedTo))) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Assignee must belong to this chat'));
+    return;
+  }
+  const task = await db.createChatTask({ chatId, createdBy: currentUser.id, assignedTo, title: parsed.data.title,
+    body: parsed.data.body || null, dueAt: parsed.data.dueAt || null });
+  res.status(201).json(createSuccessResponse(task));
+});
+
+messagesRouter.put('/:chatId/tasks/:taskId', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '', taskId = '' } = req.params;
+  const parsed = z.object({ completed: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Completed state is required'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  const task = await db.completeChatTask(chatId, taskId, parsed.data.completed);
+  if (!task) {
+    res.status(404).json(createErrorResponse('NOT_FOUND', 'Task was not found'));
+    return;
+  }
+  res.status(200).json(createSuccessResponse(task));
+});
+
+messagesRouter.post('/:chatId/scheduled', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const currentUser = await db.findUserByFirebaseUid(req.uid);
+  const { chatId = '' } = req.params;
+  const parsed = scheduleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Message text and a valid future date are required'));
+    return;
+  }
+  if (Date.parse(parsed.data.sendAt) <= Date.now()) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Choose a future date and time for the message'));
+    return;
+  }
+  if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+    res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+    return;
+  }
+  const scheduled = await db.createScheduledMessage({ chatId, senderId: currentUser.id, content: parsed.data.content, sendAt: parsed.data.sendAt });
+  res.status(201).json(createSuccessResponse(scheduled));
+});
+
 /**
  * POST /api/messages/:chatId
  * Sends a message via REST endpoint (useful when socket is reconnecting).
@@ -71,7 +267,7 @@ messagesRouter.post(
   '/:chatId',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
-    const { chatId } = req.params;
+    const { chatId = '' } = req.params;
     if (!chatId) {
       res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'chatId parameter is required'));
       return;

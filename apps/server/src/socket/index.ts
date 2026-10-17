@@ -111,6 +111,11 @@ export function initSocketServer(
       logger.info({ userId, chatId }, `User left room ${chatId}`);
     });
 
+    socket.on('refresh_chat', async ({ chatId }) => {
+      if (!(await db.canAccessChat(chatId, userId))) return;
+      io.to(chatId).emit('chat_refresh', { chatId });
+    });
+
     // 3. Send Message
     socket.on('send_message', async ({ chatId, clientTempId, type, content, mediaUrl, replyToId, metadata }) => {
       try {

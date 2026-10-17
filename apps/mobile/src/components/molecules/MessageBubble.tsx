@@ -30,6 +30,9 @@ export interface MessageBubbleProps {
   mediaUrl?: string | null;
   metadata?: Record<string, unknown> | null;
   onMediaPress?: (media: { url: string; type: MessageType; metadata?: Record<string, unknown> | null }) => void;
+  onLongPress?: () => void;
+  editedAt?: string | null;
+  isPinned?: boolean;
 }
 
 function formatBytes(bytes?: number): string {
@@ -49,6 +52,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   mediaUrl,
   metadata,
   onMediaPress,
+  onLongPress,
+  editedAt,
+  isPinned,
 }) => {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
@@ -93,7 +99,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   return (
     <View style={[styles.row, isSent ? styles.sentRow : styles.receivedRow]}>
-      <View
+      <Pressable
+        onLongPress={onLongPress}
         style={[
           styles.bubble,
           isMedia && styles.mediaBubble,
@@ -266,12 +273,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
         {/* META ROW: TIME & TICKS */}
         <View style={styles.metaRow}>
+          {isPinned && <Ionicons name="pin" size={11} color={theme.primary} />}
+          {editedAt && <Text variant="caption" colorRole="secondary" style={styles.timeText}>edited</Text>}
           <Text variant="caption" colorRole="secondary" style={styles.timeText}>
             {timestamp}
           </Text>
           {renderStatusIcon()}
         </View>
-      </View>
+      </Pressable>
     </View>
   );
 };

@@ -27,7 +27,7 @@ export class StatusCleanerWorker {
   start(): void {
     logger.info(
       { intervalMs: this.intervalMs },
-      'StatusCleanerWorker: Initialized hourly cleanup worker for expired 24h stories.'
+      'StatusCleanerWorker: Initialized cleanup for expired stories and disappearing messages.'
     );
 
     // Run an initial sweep immediately on startup
@@ -45,13 +45,17 @@ export class StatusCleanerWorker {
   async runSweep(): Promise<number> {
     try {
       const deletedCount = await db.deleteExpiredStatuses();
+      const deletedMessages = await db.deleteExpiredMessages();
       if (deletedCount > 0) {
         logger.info(
           { deletedCount, timestamp: new Date().toISOString() },
           `StatusCleanerWorker: Successfully pruned ${deletedCount} expired statuses (>24h).`
         );
       }
-      return deletedCount;
+      if (deletedMessages > 0) {
+        logger.info({ deletedMessages, timestamp: new Date().toISOString() }, 'StatusCleanerWorker: Removed expired chat messages.');
+      }
+      return deletedCount + deletedMessages;
     } catch (err) {
       logger.error({ err }, 'StatusCleanerWorker: Error running status cleanup sweep');
       return 0;
@@ -70,4 +74,4 @@ export class StatusCleanerWorker {
   }
 }
 
-export const statusCleanerWorker = new StatusCleanerWorker(60);
+export const statusCleanerWorker = new StatusCleanerWorker(5);
