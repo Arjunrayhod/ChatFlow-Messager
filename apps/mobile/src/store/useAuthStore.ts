@@ -5,6 +5,9 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { unregisterIncomingCallPush } from '../services/notifications';
 import { User, CreateUserDto, CheckUsernameResponse } from '@chatflow/shared';
 import {
   checkUsernameAvailability,
@@ -193,6 +196,14 @@ export const useAuthStore = create<AuthState>()(
    * Clears active authentication session and profile data.
    */
   signOut: async () => {
+    const { token } = get();
+    if (token) {
+      try {
+        await unregisterIncomingCallPush(token);
+      } catch (error) {
+        console.warn('[Push] Could not unregister this device before sign-out:', error);
+      }
+    }
     disconnectSocket();
     await signOutFromFirebase();
     set({
@@ -206,7 +217,17 @@ export const useAuthStore = create<AuthState>()(
 }),
     {
       name: 'chatflow_auth_session',
-      storage: createJSONStorage(() => webSafeStorage),
+      storage: createJSONStorage(() => ({
+        getItem: async (key) => Platform.OS === 'web' ? webSafeStorage.getItem(key) : SecureStore.getItemAsync(key),
+        setItem: async (key, value) => {
+          if (Platform.OS === 'web') webSafeStorage.setItem(key, value);
+          else await SecureStore.setItemAsync(key, value);
+        },
+        removeItem: async (key) => {
+          if (Platform.OS === 'web') webSafeStorage.removeItem(key);
+          else await SecureStore.deleteItemAsync(key);
+        },
+      })),
       partialize: (state) => ({
         token: state.token,
         user: state.user,
