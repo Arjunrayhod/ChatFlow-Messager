@@ -16,6 +16,8 @@ import fs from 'fs';
 import path from 'path';
 import { createSuccessResponse, createErrorResponse } from '@chatflow/shared';
 import { logger } from '../utils/logger';
+import { requireAuth } from '../middlewares/auth';
+import { extensionForMimeType, isValidBase64Payload } from '../utils/media';
 
 export const uploadRouter: Router = Router();
 
@@ -28,7 +30,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 const uploadSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.string().trim().min(1).max(100),
-  data: z.string().min(1, 'File payload is required'),
+  data: z.string().min(1, 'File payload is required').max(90_000_000),
   isHD: z.boolean().default(true),
   width: z.number().optional(),
   height: z.number().optional(),
@@ -39,7 +41,7 @@ const uploadSchema = z.object({
  * POST /api/upload
  * Uploads media in original uncompressed HD resolution.
  */
-uploadRouter.post('/', async (req: Request, res: Response): Promise<void> => {
+uploadRouter.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const parseResult = uploadSchema.safeParse(req.body);
   if (!parseResult.success) {
     res.status(400).json(
@@ -53,15 +55,23 @@ uploadRouter.post('/', async (req: Request, res: Response): Promise<void> => {
   }
 
   const { fileName, mimeType, data, isHD, width, height, duration } = parseResult.data;
+  const extension = extensionForMimeType(mimeType);
+  if (!extension) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'This media type is not supported'));
+    return;
+  }
 
   try {
     // Strip data URI prefix if present (e.g. data:image/jpeg;base64,...)
     const base64Data = data.replace(/^data:[^;]+;base64,/, '');
+    if (!isValidBase64Payload(base64Data, 64 * 1024 * 1024)) {
+      res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Media must be valid base64 and no larger than 64 MB'));
+      return;
+    }
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Generate safe unique filename
-    const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const uniqueFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}_${sanitizedName}`;
+    // Never use a client-supplied extension for a publicly served file.
+    const uniqueFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}${extension}`;
     const filePath = path.join(UPLOADS_DIR, uniqueFileName);
 
     // Save exact binary buffer to disk

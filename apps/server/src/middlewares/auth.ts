@@ -87,46 +87,16 @@ export async function requireAuth(
     return;
   }
 
-  // 1. If Firebase Admin SDK is initialized, verify via Admin SDK
-  if (firebaseInitialized) {
-    try {
-      const decodedToken = await getAuth().verifyIdToken(token);
-      req.uid = decodedToken.uid;
-      req.userEmail = decodedToken.email || '';
+  try {
+    const identity = await verifyAuthToken(token);
+    if (identity) {
+      req.uid = identity.uid;
+      req.userEmail = identity.email;
       next();
       return;
-    } catch (err) {
-      logger.warn({ err }, 'Firebase Admin SDK verification failed, checking fallback verification');
     }
-  }
-
-  // 2. Verify real Google ID Token via Google's official public OAuth2 tokeninfo endpoint
-  if (token.length > 50 && !token.startsWith('dev_token_')) {
-    try {
-      const googleRes = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`
-      );
-      if (googleRes.ok) {
-        const payload = (await googleRes.json()) as { sub?: string; email?: string };
-        if (payload.sub && payload.email) {
-          req.uid = payload.sub;
-          req.userEmail = payload.email;
-          next();
-          return;
-        }
-      }
-    } catch (err) {
-      logger.warn({ err }, 'Google tokeninfo verification failed');
-    }
-  }
-
-  // 3. Development token fallback for local offline testing
-  if (token.startsWith('dev_token_')) {
-    const parts = token.replace('dev_token_', '').split(':');
-    req.uid = parts[0] || 'dev_user_123';
-    req.userEmail = parts[1] || 'dev.user@gmail.com';
-    next();
-    return;
+  } catch (err) {
+    logger.warn({ err }, 'Authentication token verification failed');
   }
 
   res.status(401).json(
@@ -135,4 +105,44 @@ export async function requireAuth(
       'Invalid or expired Google authentication token'
     )
   );
+}
+
+/** Verifies an authentication token and returns its trusted identity. */
+export async function verifyAuthToken(
+  token: string
+): Promise<{ uid: string; email: string } | null> {
+  if (firebaseInitialized) {
+    try {
+      const decodedToken = await getAuth().verifyIdToken(token);
+      return { uid: decodedToken.uid, email: decodedToken.email || '' };
+    } catch {
+      // Let the Google ID-token verifier handle Google OAuth tokens below.
+    }
+  }
+
+  if (token.length > 50 && !token.startsWith('dev_token_')) {
+    try {
+      const googleRes = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`
+      );
+      if (googleRes.ok) {
+        const payload = (await googleRes.json()) as { sub?: string; email?: string };
+        if (payload.sub && payload.email) {
+          return { uid: payload.sub, email: payload.email };
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Google token verification request failed');
+    }
+  }
+
+  if (env.NODE_ENV !== 'production' && token.startsWith('dev_token_')) {
+    const parts = token.replace('dev_token_', '').split(':');
+    return {
+      uid: parts[0] || 'dev_user_123',
+      email: parts[1] || 'dev.user@gmail.com',
+    };
+  }
+
+  return null;
 }
