@@ -94,17 +94,22 @@ jobs:
           settings = Path("apps/mobile/android/settings.gradle")
           contents = settings.read_text()
           contents = re.sub(
-              r"(?m)^\s*includeBuild\(expoAutolinking\.reactNativeGradlePlugin\)\s*$\n?",
+              r"(?m)^[ \t]*includeBuild\s*\([^\r\n]*(?:expoAutolinking\.reactNativeGradlePlugin|null)[^\r\n]*\)[ \t]*(?:\r?\n|$)",
               "",
               contents,
           )
-          contents = re.sub(r"(?m)^\s*includeBuild\(null\)\s*$\n?", "", contents)
           if "includeBuild(reactNativeGradlePlugin)" not in contents:
               plugin_management = re.search(r"pluginManagement\s*\{", contents)
               if not plugin_management:
                   raise SystemExit("pluginManagement block was not found in generated settings.gradle")
               direct_plugin_path = '''
-            def reactNativeGradlePlugin = new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile()
+            def reactNativeGradlePluginProcess = ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir.parentFile)
+            reactNativeGradlePluginProcess.waitFor()
+            def reactNativeGradlePluginPackage = reactNativeGradlePluginProcess.text.trim()
+            if (reactNativeGradlePluginProcess.exitValue() != 0 || !reactNativeGradlePluginPackage) {
+              throw new GradleException("Could not resolve @react-native/gradle-plugin from apps/mobile. Node output: ${reactNativeGradlePluginProcess.err.text}")
+            }
+            def reactNativeGradlePlugin = new File(reactNativeGradlePluginPackage).getParentFile()
             includeBuild(reactNativeGradlePlugin)
           '''
               contents = contents[:plugin_management.end()] + direct_plugin_path + contents[plugin_management.end():]
