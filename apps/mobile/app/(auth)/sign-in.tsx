@@ -55,11 +55,8 @@ export default function SignInScreen() {
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const handleGoogleButtonClick = async () => {
-    if (isFirebaseConfigured()) {
-      await handleGoogleSignIn();
-    } else {
-      setIsGoogleModalOpen(true);
-    }
+    setValidationError(null);
+    setIsGoogleModalOpen(true);
   };
 
   const handleGoogleSignIn = async (email?: string) => {
