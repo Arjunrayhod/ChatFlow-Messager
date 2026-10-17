@@ -35,7 +35,8 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      ["@config-plugins/react-native-webrtc", {"cameraPermission": "Allow ChatFlow to use your camera for video calls.", "microphonePermission": "Allow ChatFlow to use your microphone for calls."}]
     ],
     "scheme": "chatflow"
   }

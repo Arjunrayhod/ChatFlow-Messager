@@ -41,11 +41,13 @@ export interface ActiveCall {
   callId: string;
   partner: CallParticipant;
   type: CallType;
-  status: CallStatus | 'idle';
+  status: CallStatus | 'idle' | 'connecting';
   direction: 'incoming' | 'outgoing';
   incomingSdp?: unknown;
   endReason?: string;
 }
+
+export type CallMediaStream = MediaStream;
 
 export interface CallStoreState {
   activeCall: ActiveCall | null;
@@ -73,6 +75,12 @@ export interface CallStoreState {
 }
 
 let timerInterval: any = null;
+let callAuthToken = '';
+
+function startCallDurationTimer(set: (partial: any) => void): void {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => set((state: CallStoreState) => ({ callDuration: state.callDuration + 1 })), 1000);
+}
 
 export const useCallStore = create<CallStoreState>((set, get) => ({
   activeCall: null,
@@ -89,6 +97,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
    * Initializes real-time Socket.IO signaling event listeners.
    */
   initCallListeners: (token: string) => {
+    callAuthToken = token;
     const socket = connectSocket(token);
     if (!socket) return;
 
@@ -159,18 +168,11 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         await webrtcService.setRemoteAnswer(payload.sdp as RTCSessionDescriptionInit);
       }
 
-      set({
-        activeCall: {
-          ...activeCall,
-          status: 'connected',
-        },
-      });
-
-      // Start duration counter
-      if (timerInterval) clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        set((state) => ({ callDuration: state.callDuration + 1 }));
-      }, 1000);
+      // Signaling acceptance is not media connection; ICE/WebRTC callback marks it connected.
+      const current = get().activeCall;
+      if (current?.callId === activeCall.callId && current.status !== 'connected') {
+        set({ activeCall: { ...current, status: 'connecting' } });
+      }
     });
 
     // D. Remote Peer Declined Call
@@ -186,7 +188,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       }
 
       // If call is already connected, DO NOT drop the call due to a stale rejection packet!
-      if (activeCall.status === 'connected') {
+      if (activeCall.status === 'connected' || activeCall.status === 'connecting') {
         console.warn('[useCallStore] Ignoring stale call_rejected because call is already connected');
         return;
       }
@@ -299,16 +301,17 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
     ringtoneService.startOutgoingRingback();
     webrtcService.unlockAudio();
+    const pendingCandidates: unknown[] = [];
+    let signalingStarted = false;
 
     try {
+      await webrtcService.configureIceServers(callAuthToken);
       // 1. Get user media stream with audio fallback for video
       let stream = await webrtcService.getLocalMedia(type);
       if (!stream && type === 'video') {
         console.log('[useCallStore] Video acquisition failed, attempting audio-only fallback');
         stream = await webrtcService.getLocalMedia('audio');
       }
-
-      set({ localStream: stream });
 
       // If media is blocked (e.g. Chrome Android insecure origin on LAN HTTP or denied permission)
       if (!stream && Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -323,24 +326,49 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         }
       }
 
+      if (!stream) throw new Error('Microphone permission or device unavailable');
+
+      set({ localStream: stream });
+
       // 2. Initialize peer connection
       webrtcService.initPeerConnection(
         (remoteStream) => {
           set({ remoteStream });
         },
         (candidate) => {
-          emitCallIceCandidate(callId, partner.id, candidate);
-        }
+          if (signalingStarted) emitCallIceCandidate(callId, partner.id, candidate);
+          else pendingCandidates.push(candidate);
+        },
+        (connectionState) => {
+          if (connectionState === 'connected') {
+            const current = get().activeCall;
+            if (!current || current.callId !== callId || current.status === 'connected') return;
+            ringtoneService.stopAll();
+            set({ activeCall: { ...current, status: 'connected' } });
+            startCallDurationTimer(set);
+          } else if (connectionState === 'failed') {
+            const current = get().activeCall;
+            if (!current || current.callId !== callId || current.status === 'ended') return;
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = null;
+            emitCallEnd(callId, partner.id, get().callDuration, 'Media connection failed');
+            webrtcService.destroy();
+            set({ activeCall: { ...current, status: 'ended', endReason: 'Media connection failed' } });
+          }
+        },
       );
 
       // 3. Create SDP Offer with explicit type
       const offer = await webrtcService.createOffer(type);
       if (offer) {
         emitCallInitiate(callId, partner.id, type, offer);
-      }
+        signalingStarted = true;
+        pendingCandidates.forEach((candidate) => emitCallIceCandidate(callId, partner.id, candidate as any));
+      } else throw new Error('Could not create call offer');
     } catch (err) {
       console.warn('[useCallStore] startCall error:', err);
       ringtoneService.stopAll();
+      webrtcService.destroy();
       Alert.alert(
         'Call Error',
         'Call shuru karne me samasya aayi. Kripya microphone ya camera permission check karein.'
@@ -358,14 +386,19 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
     ringtoneService.stopAll();
     webrtcService.unlockAudio();
+    const pendingCandidates: unknown[] = [];
+    let signalingStarted = false;
 
     try {
+      await webrtcService.configureIceServers(callAuthToken);
       // 1. Get user media stream with audio fallback
       let stream = await webrtcService.getLocalMedia(activeCall.type);
       if (!stream && activeCall.type === 'video') {
         console.log('[useCallStore] Video acquisition failed on answer, attempting audio-only fallback');
         stream = await webrtcService.getLocalMedia('audio');
       }
+
+      if (!stream) throw new Error('Microphone permission or device unavailable');
 
       set({ localStream: stream });
 
@@ -375,8 +408,26 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
           set({ remoteStream });
         },
         (candidate) => {
-          emitCallIceCandidate(activeCall.callId, activeCall.partner.id, candidate);
-        }
+          if (signalingStarted) emitCallIceCandidate(activeCall.callId, activeCall.partner.id, candidate);
+          else pendingCandidates.push(candidate);
+        },
+        (connectionState) => {
+          if (connectionState === 'connected') {
+            const current = get().activeCall;
+            if (!current || current.callId !== activeCall.callId || current.status === 'connected') return;
+            ringtoneService.stopAll();
+            set({ activeCall: { ...current, status: 'connected' } });
+            startCallDurationTimer(set);
+          } else if (connectionState === 'failed') {
+            const current = get().activeCall;
+            if (!current || current.callId !== activeCall.callId || current.status === 'ended') return;
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = null;
+            emitCallEnd(activeCall.callId, activeCall.partner.id, get().callDuration, 'Media connection failed');
+            webrtcService.destroy();
+            set({ activeCall: { ...current, status: 'ended', endReason: 'Media connection failed' } });
+          }
+        },
       );
 
       // 3. Create SDP Answer
@@ -386,23 +437,17 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
       if (answer) {
         emitCallAnswer(activeCall.callId, activeCall.partner.id, answer);
-      }
-
-      set({
-        activeCall: {
-          ...activeCall,
-          status: 'connected',
-        },
-      });
-
-      // Duration counter
-      if (timerInterval) clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        set((state) => ({ callDuration: state.callDuration + 1 }));
-      }, 1000);
+        signalingStarted = true;
+        pendingCandidates.forEach((candidate) => emitCallIceCandidate(activeCall.callId, activeCall.partner.id, candidate as any));
+        const current = get().activeCall;
+        if (current?.callId === activeCall.callId && current.status !== 'connected') {
+          set({ activeCall: { ...current, status: 'connecting' } });
+        }
+      } else throw new Error('Could not create call answer');
     } catch (err) {
       console.warn('[useCallStore] answerCall error:', err);
       ringtoneService.stopAll();
+      webrtcService.destroy();
       Alert.alert(
         'Call Answer Error',
         'Call answer karne me samasya aayi. Kripya microphone/camera permission check karein.'

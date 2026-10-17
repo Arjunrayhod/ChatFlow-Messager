@@ -29,80 +29,7 @@ import { tokens } from '../../theme/tokens';
 import { Text } from '../atoms/Text';
 import { Avatar } from '../atoms/Avatar';
 import { useCallStore } from '../../store/useCallStore';
-
-// Web Video Element Component
-function WebVideoPlayer({
-  stream,
-  isMuted = false,
-  isMirrored = false,
-  style,
-}: {
-  stream: MediaStream | null;
-  isMuted?: boolean;
-  isMirrored?: boolean;
-  style?: React.CSSProperties;
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-
-    const attachStream = () => {
-      if (!el || !stream) return;
-      if (el.srcObject !== stream) {
-        el.srcObject = stream;
-      }
-      el.muted = isMuted;
-      el.defaultMuted = isMuted;
-      el.setAttribute('playsinline', 'true');
-      el.setAttribute('webkit-playsinline', 'true');
-      if (isMuted) {
-        el.setAttribute('muted', 'true');
-      }
-
-      const playPromise = el.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          console.warn('[WebVideoPlayer] video.play() error:', err);
-          if (!isMuted) {
-            el.muted = true;
-            el.play().catch(() => {});
-          }
-        });
-      }
-    };
-
-    if (stream) {
-      attachStream();
-      stream.addEventListener('addtrack', attachStream);
-      return () => {
-        stream.removeEventListener('addtrack', attachStream);
-      };
-    } else {
-      el.srcObject = null;
-    }
-  }, [stream, isMuted]);
-
-  if (Platform.OS !== 'web') return null;
-
-  return (
-    <video
-      ref={videoRef}
-      autoPlay
-      playsInline
-      muted={isMuted}
-      style={{
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover',
-        transform: isMirrored ? 'scaleX(-1)' : 'none',
-        backgroundColor: '#000000',
-        ...style,
-      }}
-    />
-  );
-}
+import CallVideoPlayer from './CallVideoPlayer';
 
 // Dedicated Web Audio Element Component for reliable voice playback
 function WebAudioPlayer({ stream }: { stream: MediaStream | null }) {
@@ -181,6 +108,7 @@ export function ActiveCallModal() {
   const isVisible =
     Boolean(activeCall) &&
     (activeCall?.status === 'connected' ||
+      activeCall?.status === 'connecting' ||
       (activeCall?.direction === 'outgoing' &&
         (activeCall?.status === 'calling' || activeCall?.status === 'ringing')) ||
       activeCall?.status === 'ended' ||
@@ -240,9 +168,9 @@ export function ActiveCallModal() {
                 3. Fallback to Avatar if video is off or unavailable
             */}
             {isConnected && remoteStream && remoteStream.getVideoTracks().length > 0 ? (
-              <WebVideoPlayer stream={remoteStream} isMuted={true} />
+              <CallVideoPlayer stream={remoteStream} isMuted />
             ) : localStream && localStream.getVideoTracks().length > 0 && !isVideoOff ? (
-              <WebVideoPlayer stream={localStream} isMuted={true} isMirrored={true} />
+              <CallVideoPlayer stream={localStream} isMuted isMirrored />
             ) : (
               <View style={[styles.audioCenterContainer, { backgroundColor: '#0B141A' }]}>
                 <Avatar uri={partner?.avatarUrl} name={partner?.displayName || 'User'} size="xl" />
@@ -254,6 +182,8 @@ export function ActiveCallModal() {
                     ? 'Calling...'
                     : activeCall.status === 'ringing'
                     ? 'Ringing...'
+                    : activeCall.status === 'connecting'
+                    ? 'Connecting...'
                     : isConnected
                     ? 'Connecting video...'
                     : ''}
@@ -271,7 +201,7 @@ export function ActiveCallModal() {
               localStream &&
               localStream.getVideoTracks().length > 0 && (
                 <View style={[styles.pipWindow, { top: insets.top + 20 }]}>
-                  <WebVideoPlayer
+                  <CallVideoPlayer
                     stream={localStream}
                     isMuted={true}
                     isMirrored={true}
@@ -341,12 +271,14 @@ export function ActiveCallModal() {
                   ? 'Calling...'
                   : activeCall.status === 'ringing'
                   ? 'Ringing...'
+                  : activeCall.status === 'connecting'
+                  ? 'Connecting...'
                   : isBusy
                   ? 'On another call'
                   : activeCall.status === 'rejected'
                   ? 'Call Declined'
                   : activeCall.status === 'ended'
-                  ? 'Call Ended'
+                  ? activeCall.endReason || 'Call Ended'
                   : formatDuration(callDuration)}
               </Text>
             </View>
@@ -371,6 +303,8 @@ export function ActiveCallModal() {
                   ? 'Calling...'
                   : activeCall.status === 'ringing'
                   ? 'Ringing...'
+                  : activeCall.status === 'connecting'
+                  ? 'Connecting...'
                   : 'Connecting...'}
               </Text>
             </View>

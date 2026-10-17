@@ -11,14 +11,43 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { createHmac } from 'crypto';
 import {
   createSuccessResponse,
   createErrorResponse,
 } from '@chatflow/shared';
 import { requireAuth } from '../middlewares/auth';
 import { db } from '../services/db';
+import { env } from '../config/env';
 
 export const callsRouter: Router = Router();
+
+/** Short-lived Coturn REST credentials, scoped to the authenticated user. */
+callsRouter.get('/ice-servers', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
+
+  if (env.TURN_HOST && env.TURN_SHARED_SECRET) {
+    const expiry = Math.floor(Date.now() / 1000) + env.TURN_TTL_SECONDS;
+    const username = `${expiry}:${req.uid}`;
+    const credential = createHmac('sha1', env.TURN_SHARED_SECRET).update(username).digest('base64');
+    const host = env.TURN_HOST.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    iceServers.push({
+      urls: [
+        `turn:${host}:${env.TURN_UDP_PORT}?transport=udp`,
+        `turn:${host}:${env.TURN_TCP_PORT}?transport=tcp`,
+        `turns:${host}:${env.TURNS_PORT}?transport=tcp`,
+      ],
+      username,
+      credential,
+    });
+  }
+
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(200).json(createSuccessResponse({ iceServers, relayConfigured: Boolean(env.TURN_HOST && env.TURN_SHARED_SECRET) }));
+});
 
 /**
  * GET /api/calls

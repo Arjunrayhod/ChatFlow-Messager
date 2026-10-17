@@ -38,3 +38,22 @@ pnpm dev:server
 # Start Expo mobile app
 pnpm dev:mobile
 ```
+
+## Browser and Android calling
+
+Calling uses browser WebRTC on the web and `react-native-webrtc` in native builds. The signaling server exchanges offers, answers, and ICE candidates; WebRTC carries encrypted audio/video directly when possible and through TURN when network rules prevent a direct connection. The native WebRTC module needs a rebuilt APK and does not run inside Expo Go.
+
+For reliable calling across mobile carriers, office Wi-Fi, and restrictive NATs, configure a Coturn-compatible relay on the backend before deployment:
+
+```env
+TURN_HOST=turn.your-domain.example
+TURN_SHARED_SECRET=replace-with-the-same-static-auth-secret-configured-in-coturn
+TURN_UDP_PORT=3478
+TURN_TCP_PORT=3478
+TURNS_PORT=5349
+TURN_TTL_SECONDS=3600
+```
+
+Keep `TURN_SHARED_SECRET` on the server only. The authenticated `/api/calls/ice-servers` endpoint creates short-lived per-user credentials for the browser and APK. Until the relay is configured, the app falls back to STUN; calls can fail on networks that require relaying.
+
+The Android build workflow generates the native project and APK. After adding or changing native dependencies, generate a new APK; an already-installed APK cannot gain native WebRTC support through a web reload.

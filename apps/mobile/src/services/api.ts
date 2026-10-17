@@ -15,6 +15,17 @@ import {
 import { Platform } from 'react-native';
 
 export function getApiBaseUrl(): string {
+  const configuredUrl = process.env.EXPO_PUBLIC_API_URL;
+  const browserHost = typeof window !== 'undefined' ? window.location?.hostname : undefined;
+  const browserIsRemote = Boolean(browserHost && browserHost !== 'localhost' && browserHost !== '127.0.0.1');
+  const configIsLocal = Boolean(configuredUrl && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(configuredUrl));
+
+  // A production browser must use the explicitly configured API host. Ignore a local .env URL
+  // only when a remote browser is being served, then preserve the LAN-development fallback.
+  if (configuredUrl && !(Platform.OS === 'web' && browserIsRemote && configIsLocal)) {
+    return configuredUrl.replace(/\/$/, '');
+  }
+
   // 1. If running on web in a browser (localhost on PC or LAN IP on mobile phone)
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
     const host = window.location.hostname;
@@ -22,11 +33,6 @@ export function getApiBaseUrl(): string {
     if (host) {
       return `${protocol}//${host}:4000`;
     }
-  }
-
-  // 2. If EXPO_PUBLIC_API_URL is configured
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
   }
 
   // 3. Fallback to PC Wi-Fi LAN IP

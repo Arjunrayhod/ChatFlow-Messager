@@ -26,6 +26,12 @@ const envSchema = z.object({
   FIREBASE_PRIVATE_KEY: z.string().optional(),
   SUPABASE_URL: z.string().optional(), // Supabase Postgres DB ke liye
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  TURN_HOST: z.string().optional(),
+  TURN_SHARED_SECRET: z.string().optional(),
+  TURN_UDP_PORT: z.coerce.number().default(3478),
+  TURN_TCP_PORT: z.coerce.number().default(3478),
+  TURNS_PORT: z.coerce.number().default(5349),
+  TURN_TTL_SECONDS: z.coerce.number().min(60).max(86400).default(3600),
 });
 
 /**
