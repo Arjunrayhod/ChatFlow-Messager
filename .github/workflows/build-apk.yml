@@ -90,31 +90,35 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
+          import subprocess
 
           settings = Path("apps/mobile/android/settings.gradle")
           contents = settings.read_text()
           contents = re.sub(
-              r"(?m)^[ \t]*includeBuild\s*\([^\r\n]*(?:expoAutolinking\.reactNativeGradlePlugin|null)[^\r\n]*\)[ \t]*(?:\r?\n|$)",
+              r"(?m)^[ \t]*includeBuild\s*\([^\r\n]*(?:expoAutolinking\.reactNativeGradlePlugin|reactNativeGradlePlugin|null)[^\r\n]*\)[ \t]*(?:\r?\n|$)",
               "",
               contents,
           )
-          if "includeBuild(reactNativeGradlePlugin)" not in contents:
-              plugin_management = re.search(r"pluginManagement\s*\{", contents)
-              if not plugin_management:
-                  raise SystemExit("pluginManagement block was not found in generated settings.gradle")
-              direct_plugin_path = '''
-            def reactNativeGradlePluginProcess = ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir.parentFile)
-            reactNativeGradlePluginProcess.waitFor()
-            def reactNativeGradlePluginPackage = reactNativeGradlePluginProcess.text.trim()
-            if (reactNativeGradlePluginProcess.exitValue() != 0 || !reactNativeGradlePluginPackage) {
-              throw new GradleException("Could not resolve @react-native/gradle-plugin from apps/mobile. Node output: ${reactNativeGradlePluginProcess.err.text}")
-            }
-            def reactNativeGradlePlugin = new File(reactNativeGradlePluginPackage).getParentFile()
-            includeBuild(reactNativeGradlePlugin)
-          '''
-              contents = contents[:plugin_management.end()] + direct_plugin_path + contents[plugin_management.end():]
+          plugin_package = subprocess.check_output(
+              [
+                  "node",
+                  "--print",
+                  "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })",
+              ],
+              cwd="apps/mobile",
+              text=True,
+          ).strip()
+          plugin_dir = Path(plugin_package).parent.resolve()
+          if not (plugin_dir / "settings-plugin" / "build.gradle.kts").is_file():
+              raise SystemExit(f"Resolved React Native Gradle plugin is incomplete: {plugin_dir}")
+          plugin_management = re.search(r"pluginManagement\s*\{", contents)
+          if not plugin_management:
+              raise SystemExit("pluginManagement block was not found in generated settings.gradle")
+          include_path = plugin_dir.as_posix().replace("'", "\\'")
+          direct_plugin_path = f"\n  includeBuild('{include_path}')\n"
+          contents = contents[:plugin_management.end()] + direct_plugin_path + contents[plugin_management.end():]
           settings.write_text(contents)
-          print("React Native Gradle plugin path is configured in pluginManagement.")
+          print(f"React Native Gradle settings plugin included from: {plugin_dir}")
           PY
 
       - name: 🛠️ Grant execute permission for Gradle wrapper
