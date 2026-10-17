@@ -23,6 +23,9 @@ import {
   useColorScheme,
   ActivityIndicator,
   Pressable,
+  Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,6 +49,7 @@ import {
   getSocket,
 } from '../../src/services/socket';
 import { ChatMessage } from '@chatflow/shared';
+import type { ChatExpense, ChatTask } from '@chatflow/shared';
 
 export default function ChatRoomScreen() {
   const router = useRouter();
@@ -63,6 +67,8 @@ export default function ChatRoomScreen() {
     receiveMessage,
     setUserTyping,
     updateMessageStatus,
+    patchMessage,
+    removeMessageLocally,
     startTyping,
     stopTyping,
     typingUsersByChatId,
@@ -80,6 +86,28 @@ export default function ChatRoomScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [lightboxData, setLightboxData] = useState<MediaLightboxData | null>(null);
   const [chatScreenshotAlert, setChatScreenshotAlert] = useState<string | null>(null);
+  const [activeMessage, setActiveMessage] = useState<ChatMessage | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [isEditingMessage, setIsEditingMessage] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [disappearingSeconds, setDisappearingSeconds] = useState(0);
+  const [undoMessage, setUndoMessage] = useState<ChatMessage | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [toolMode, setToolMode] = useState<'menu' | 'schedule' | 'expenses' | 'tasks'>('menu');
+  const [scheduleDraft, setScheduleDraft] = useState('');
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [expenseTitle, setExpenseTitle] = useState('');
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenses, setExpenses] = useState<ChatExpense[]>([]);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskBody, setTaskBody] = useState('');
+  const [assignTaskToPeer, setAssignTaskToPeer] = useState(true);
+  const [tasks, setTasks] = useState<ChatTask[]>([]);
+  const toolsOpenRef = useRef(toolsOpen);
+  const toolModeRef = useRef(toolMode);
+  toolsOpenRef.current = toolsOpen;
+  toolModeRef.current = toolMode;
 
   const recipientId = params.id;
   const recipientName = params.name || 'Conversation';
@@ -219,6 +247,146 @@ export default function ChatRoomScreen() {
   const typingUsers = typingUsersByChatId[chatId] || [];
   const isRecipientTyping = typingUsers.some((u) => u !== user?.username);
 
+  useEffect(() => {
+    if (!token || !chatId) return;
+    void api.getChatPreferences(token, chatId).then((result) => {
+      if (result.ok) setDisappearingSeconds(result.data.disappearingSeconds);
+    });
+  }, [chatId, token]);
+
+  useEffect(() => () => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+  }, []);
+
+  const applyDisappearing = async (seconds: number) => {
+    if (!token) return;
+    const result = await api.setChatDisappearing(token, chatId, seconds);
+    if (!result.ok) {
+      Alert.alert('Could not update', result.error.message);
+      return;
+    }
+    setDisappearingSeconds(seconds);
+    getSocket()?.emit('refresh_chat', { chatId });
+    setPreferencesOpen(false);
+  };
+
+  const handleEditMessage = async () => {
+    if (!activeMessage || !token || !editDraft.trim()) return;
+    const result = await api.editChatMessage(token, chatId, activeMessage.id, editDraft.trim());
+    if (result.ok) {
+      patchMessage(chatId, activeMessage.id, result.data);
+      getSocket()?.emit('refresh_chat', { chatId });
+      setActiveMessage(null);
+    } else {
+      Alert.alert('Could not edit', result.error.message);
+    }
+  };
+
+  const handlePinMessage = async () => {
+    if (!activeMessage || !token) return;
+    const pinned = !activeMessage.isPinned;
+    const result = await api.setMessagePinned(token, chatId, activeMessage.id, pinned);
+    if (result.ok) {
+      patchMessage(chatId, activeMessage.id, { isPinned: pinned });
+      getSocket()?.emit('refresh_chat', { chatId });
+    }
+    else Alert.alert('Could not update pin', result.error.message);
+    setActiveMessage(null);
+  };
+
+  const handleHideMessage = async () => {
+    if (!activeMessage || !token) return;
+    const message = activeMessage;
+    const result = await api.setMessageHidden(token, chatId, message.id, true);
+    if (!result.ok) {
+      Alert.alert('Could not delete', result.error.message);
+      setActiveMessage(null);
+      return;
+    }
+    removeMessageLocally(chatId, message.id);
+    getSocket()?.emit('refresh_chat', { chatId });
+    setUndoMessage(message);
+    setActiveMessage(null);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setUndoMessage(null), 8000);
+  };
+
+  const undoHideMessage = async () => {
+    if (!undoMessage || !token) return;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    const message = undoMessage;
+    const result = await api.setMessageHidden(token, chatId, message.id, false);
+    if (result.ok && (!message.expiresAt || Date.parse(message.expiresAt) > Date.now())) receiveMessage(message);
+    if (result.ok) getSocket()?.emit('refresh_chat', { chatId });
+    else Alert.alert('Undo failed', result.error.message);
+    setUndoMessage(null);
+  };
+
+  useEffect(() => {
+    if (!toolsOpen || !token) return;
+    if (toolMode === 'expenses') void api.getChatExpenses(token, chatId).then((result) => { if (result.ok) setExpenses(result.data); });
+    if (toolMode === 'tasks') void api.getChatTasks(token, chatId).then((result) => { if (result.ok) setTasks(result.data); });
+  }, [chatId, token, toolsOpen, toolMode]);
+
+  const handleScheduleMessage = async () => {
+    if (!token || !scheduleDraft.trim() || !scheduleAt.trim()) return;
+    const parsedDate = new Date(scheduleAt.trim().replace(' ', 'T'));
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.getTime() <= Date.now()) {
+      Alert.alert('Choose a future time', 'Enter a future date and time.');
+      return;
+    }
+    const result = await api.scheduleChatMessage(token, chatId, scheduleDraft.trim(), parsedDate.toISOString());
+    if (!result.ok) {
+      Alert.alert('Could not schedule', result.error.message);
+      return;
+    }
+    setScheduleDraft('');
+    setScheduleAt('');
+    setToolsOpen(false);
+  };
+
+  const handleCreateExpense = async () => {
+    if (!token || !user?.id || !expenseTitle.trim() || !Number(expenseAmount)) return;
+    const result = await api.createChatExpense(token, chatId, {
+      title: expenseTitle.trim(), amount: Number(expenseAmount), paidBy: user.id,
+      splitBetween: [...new Set([user.id, recipientId])],
+    });
+    if (!result.ok) {
+      Alert.alert('Could not add expense', result.error.message);
+      return;
+    }
+    setExpenses((current) => [result.data, ...current]);
+    getSocket()?.emit('refresh_chat', { chatId });
+    setExpenseTitle('');
+    setExpenseAmount('');
+  };
+
+  const handleCreateTask = async () => {
+    if (!token || !taskTitle.trim()) return;
+    const result = await api.createChatTask(token, chatId, {
+      title: taskTitle.trim(), body: taskBody.trim() || null,
+      assignedTo: assignTaskToPeer ? recipientId : user?.id || null,
+    });
+    if (!result.ok) {
+      Alert.alert('Could not add task', result.error.message);
+      return;
+    }
+    setTasks((current) => [result.data, ...current]);
+    getSocket()?.emit('refresh_chat', { chatId });
+    setTaskTitle('');
+    setTaskBody('');
+  };
+
+  const toggleTask = async (task: ChatTask) => {
+    if (!token) return;
+    const result = await api.setChatTaskCompleted(token, chatId, task.id, !task.completedAt);
+    if (result.ok) {
+      setTasks((current) => current.map((item) => item.id === task.id ? result.data : item));
+      getSocket()?.emit('refresh_chat', { chatId });
+    }
+    else Alert.alert('Could not update task', result.error.message);
+  };
+
   // Setup Socket.IO connection and room lifecycle
   useEffect(() => {
     if (!token || !chatId) return;
@@ -249,6 +417,20 @@ export default function ChatRoomScreen() {
       }
     };
 
+    const handleChatRefresh = (payload: { chatId: string }) => {
+      if (payload.chatId !== chatId) return;
+      void loadHistory(chatId, token);
+      void api.getChatPreferences(token, chatId).then((result) => {
+        if (result.ok) setDisappearingSeconds(result.data.disappearingSeconds);
+      });
+      if (toolsOpenRef.current && toolModeRef.current === 'expenses') {
+        void api.getChatExpenses(token, chatId).then((result) => { if (result.ok) setExpenses(result.data); });
+      }
+      if (toolsOpenRef.current && toolModeRef.current === 'tasks') {
+        void api.getChatTasks(token, chatId).then((result) => { if (result.ok) setTasks(result.data); });
+      }
+    };
+
     const handleScreenshotDetected = (payload: {
       targetType: 'status' | 'chat';
       targetId: string;
@@ -265,6 +447,7 @@ export default function ChatRoomScreen() {
     socket.on('message_new', handleMessageNew);
     socket.on('user_typing', handleUserTyping);
     socket.on('message_status_update', handleStatusUpdate);
+    socket.on('chat_refresh', handleChatRefresh);
     socket.on('screenshot_detected', handleScreenshotDetected);
 
     return () => {
@@ -272,6 +455,7 @@ export default function ChatRoomScreen() {
       socket.off('message_new', handleMessageNew);
       socket.off('user_typing', handleUserTyping);
       socket.off('message_status_update', handleStatusUpdate);
+      socket.off('chat_refresh', handleChatRefresh);
       socket.off('screenshot_detected', handleScreenshotDetected);
     };
   }, [chatId, token, loadHistory, receiveMessage, setUserTyping, updateMessageStatus]);
@@ -402,6 +586,13 @@ export default function ChatRoomScreen() {
                   cameraInputRef.current?.click();
                 }}
               />
+              <IconButton
+                name="ellipsis-horizontal"
+                size="md"
+                color={theme.textInverse}
+                accessibilityLabel="Chat tools"
+                onPress={() => { setToolMode('menu'); setToolsOpen(true); }}
+              />
             </View>
           ),
         }}
@@ -415,6 +606,22 @@ export default function ChatRoomScreen() {
             {chatScreenshotAlert}
           </Text>
         </View>
+      )}
+
+      {messages.some((message) => message.isPinned) && (
+        <Pressable
+          onPress={() => {
+            const pinned = messages.find((message) => message.isPinned);
+            if (pinned) flatListRef.current?.scrollToIndex({ index: messages.findIndex((m) => m.id === pinned.id), animated: true });
+          }}
+          style={styles.pinnedBanner}
+        >
+          <Ionicons name="pin" size={16} color={theme.primary} />
+          <Text variant="caption" numberOfLines={1} style={styles.pinnedBannerText}>
+            Pinned: {messages.find((message) => message.isPinned)?.content || 'Media message'}
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
+        </Pressable>
       )}
 
       {/* Messages List Area */}
@@ -493,6 +700,13 @@ export default function ChatRoomScreen() {
                 type={item.type}
                 mediaUrl={item.mediaUrl}
                 metadata={item.metadata}
+                editedAt={item.editedAt}
+                isPinned={item.isPinned}
+                onLongPress={() => {
+                  setActiveMessage(item);
+                  setEditDraft(item.content);
+                  setIsEditingMessage(false);
+                }}
                 onMediaPress={(media) => {
                   setLightboxData({
                     url: media.url,
@@ -511,6 +725,15 @@ export default function ChatRoomScreen() {
             }
           }}
         />
+      )}
+
+      {undoMessage && (
+        <View style={styles.undoBar}>
+          <Text variant="body" style={styles.undoText}>Message deleted for you</Text>
+          <Pressable onPress={() => void undoHideMessage()} style={styles.undoButton}>
+            <Text variant="bodyMedium" style={styles.undoButtonText}>UNDO</Text>
+          </Pressable>
+        </View>
       )}
 
       {/* Typing Indicator */}
@@ -607,6 +830,139 @@ export default function ChatRoomScreen() {
         data={lightboxData}
         onClose={() => setLightboxData(null)}
       />
+
+      <Modal visible={preferencesOpen} transparent animationType="fade" onRequestClose={() => setPreferencesOpen(false)}>
+        <View style={styles.dialogBackdrop}>
+          <View style={[styles.dialogCard, { backgroundColor: theme.surface }]}>
+            <Text variant="h2">Disappearing messages</Text>
+            <Text variant="caption" colorRole="secondary">New messages automatically expire after:</Text>
+            {[
+              { value: 0, label: 'Off' },
+              { value: 86400, label: '24 hours' },
+              { value: 604800, label: '7 days' },
+              { value: 7776000, label: '90 days' },
+            ].map((option) => (
+              <Pressable key={option.value} onPress={() => void applyDisappearing(option.value)} style={styles.dialogOption}>
+                <Text variant="body">{option.label}</Text>
+                {disappearingSeconds === option.value && <Ionicons name="checkmark-circle" size={20} color={theme.primary} />}
+              </Pressable>
+            ))}
+            <Pressable onPress={() => setPreferencesOpen(false)} style={styles.dialogDismiss}><Text variant="bodyMedium" colorRole="primary">Close</Text></Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!activeMessage} transparent animationType="fade" onRequestClose={() => setActiveMessage(null)}>
+        <View style={styles.dialogBackdrop}>
+          <View style={[styles.dialogCard, { backgroundColor: theme.surface }]}>
+            {isEditingMessage ? (
+              <>
+                <Text variant="h2">Edit message</Text>
+                <TextInput value={editDraft} onChangeText={setEditDraft} multiline style={[styles.editInput, { color: theme.textPrimary, borderColor: theme.divider }]} />
+                <View style={styles.dialogActions}>
+                  <Pressable onPress={() => setIsEditingMessage(false)}><Text variant="bodyMedium" colorRole="secondary">Back</Text></Pressable>
+                  <Pressable onPress={() => void handleEditMessage()}><Text variant="bodyMedium" colorRole="primary">Save</Text></Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text variant="h2">Message options</Text>
+                {activeMessage && activeMessage.senderId === user?.id && Date.now() - Date.parse(activeMessage.createdAt) <= 15 * 60 * 1000 && activeMessage.type === 'text' && (
+                  <Pressable onPress={() => { if (!activeMessage) return; setEditDraft(activeMessage.content); setIsEditingMessage(true); }} style={styles.dialogOption}>
+                    <Text variant="body">Edit (15-minute limit)</Text><Ionicons name="create-outline" size={20} color={theme.primary} />
+                  </Pressable>
+                )}
+                <Pressable onPress={() => void handlePinMessage()} style={styles.dialogOption}>
+                  <Text variant="body">{activeMessage?.isPinned ? 'Unpin message' : 'Pin message'}</Text><Ionicons name="pin-outline" size={20} color={theme.primary} />
+                </Pressable>
+                <Pressable onPress={() => void handleHideMessage()} style={styles.dialogOption}>
+                  <Text variant="body">Delete for me</Text><Ionicons name="trash-outline" size={20} color={theme.error} />
+                </Pressable>
+                <Pressable onPress={() => setActiveMessage(null)} style={styles.dialogDismiss}><Text variant="bodyMedium" colorRole="secondary">Cancel</Text></Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={toolsOpen} transparent animationType="fade" onRequestClose={() => setToolsOpen(false)}>
+        <View style={styles.dialogBackdrop}>
+          <View style={[styles.dialogCard, { backgroundColor: theme.surface }]}>
+            {toolMode === 'menu' && (
+              <>
+                <Text variant="h2">Chat tools</Text>
+                <Pressable onPress={() => { setToolsOpen(false); setPreferencesOpen(true); }} style={styles.dialogOption}><Text variant="body">Disappearing messages</Text><Ionicons name="timer-outline" size={20} color={theme.primary} /></Pressable>
+                <Pressable onPress={() => setToolMode('schedule')} style={styles.dialogOption}><Text variant="body">Schedule a message</Text><Ionicons name="time-outline" size={20} color={theme.primary} /></Pressable>
+                <Pressable onPress={() => setToolMode('expenses')} style={styles.dialogOption}><Text variant="body">Split an expense</Text><Ionicons name="wallet-outline" size={20} color={theme.primary} /></Pressable>
+                <Pressable onPress={() => setToolMode('tasks')} style={styles.dialogOption}><Text variant="body">Notes and tasks</Text><Ionicons name="checkbox-outline" size={20} color={theme.primary} /></Pressable>
+                <Pressable onPress={() => setToolsOpen(false)} style={styles.dialogDismiss}><Text variant="bodyMedium" colorRole="secondary">Close</Text></Pressable>
+              </>
+            )}
+            {toolMode === 'schedule' && (
+              <>
+                <View style={styles.dialogTitleRow}>
+                  <Pressable onPress={() => setToolMode('menu')}><Ionicons name="arrow-back" size={22} color={theme.textPrimary} /></Pressable>
+                  <Text variant="h2">Schedule message</Text>
+                </View>
+                <TextInput value={scheduleDraft} onChangeText={setScheduleDraft} placeholder="Message" multiline style={[styles.editInput, { color: theme.textPrimary, borderColor: theme.divider }]} />
+                <Text variant="caption" colorRole="secondary">Enter date and time, e.g. 2026-10-18 09:00</Text>
+                <TextInput value={scheduleAt} onChangeText={setScheduleAt} placeholder="YYYY-MM-DD HH:mm" autoCapitalize="none" style={[styles.singleLineInput, { color: theme.textPrimary, borderColor: theme.divider }]} />
+                <Pressable onPress={() => void handleScheduleMessage()} style={[styles.primaryAction, { backgroundColor: theme.primary }]}><Text variant="bodyMedium" colorRole="inverse">Schedule</Text></Pressable>
+              </>
+            )}
+            {toolMode === 'expenses' && (
+              <>
+                <View style={styles.dialogTitleRow}>
+                  <Pressable onPress={() => setToolMode('menu')}><Ionicons name="arrow-back" size={22} color={theme.textPrimary} /></Pressable>
+                  <Text variant="h2">Split expense</Text>
+                </View>
+                <TextInput value={expenseTitle} onChangeText={setExpenseTitle} placeholder="What was paid for?" style={[styles.singleLineInput, { color: theme.textPrimary, borderColor: theme.divider }]} />
+                <TextInput value={expenseAmount} onChangeText={setExpenseAmount} placeholder="Amount (INR)" keyboardType="decimal-pad" style={[styles.singleLineInput, { color: theme.textPrimary, borderColor: theme.divider }]} />
+                <Text variant="caption" colorRole="secondary">Paid by you • split equally between you and {recipientName}</Text>
+                <Pressable onPress={() => void handleCreateExpense()} style={[styles.primaryAction, { backgroundColor: theme.primary }]}><Text variant="bodyMedium" colorRole="inverse">Add expense</Text></Pressable>
+                <FlatList
+                  data={expenses}
+                  keyExtractor={(item) => item.id}
+                  style={styles.toolList}
+                  ListEmptyComponent={<Text variant="caption" colorRole="secondary">No expenses yet.</Text>}
+                  renderItem={({ item }) => <Text variant="caption" style={styles.toolListItem}>{item.title} • ₹{item.amount.toFixed(2)} • ₹{(item.amount / Math.max(1, item.splitBetween.length)).toFixed(2)} each</Text>}
+                />
+              </>
+            )}
+            {toolMode === 'tasks' && (
+              <>
+                <View style={styles.dialogTitleRow}>
+                  <Pressable onPress={() => setToolMode('menu')}><Ionicons name="arrow-back" size={22} color={theme.textPrimary} /></Pressable>
+                  <Text variant="h2">Notes and tasks</Text>
+                </View>
+                <TextInput value={taskTitle} onChangeText={setTaskTitle} placeholder="Task title" style={[styles.singleLineInput, { color: theme.textPrimary, borderColor: theme.divider }]} />
+                <TextInput value={taskBody} onChangeText={setTaskBody} placeholder="Notes or details (optional)" multiline style={[styles.editInput, { color: theme.textPrimary, borderColor: theme.divider }]} />
+                <View style={styles.dialogTitleRow}>
+                  <Pressable onPress={() => setAssignTaskToPeer(false)} style={[styles.assignChoice, !assignTaskToPeer && { backgroundColor: theme.primary }]}><Text variant="caption" colorRole={!assignTaskToPeer ? 'inverse' : 'secondary'}>Assign to me</Text></Pressable>
+                  <Pressable onPress={() => setAssignTaskToPeer(true)} style={[styles.assignChoice, assignTaskToPeer && { backgroundColor: theme.primary }]}><Text variant="caption" colorRole={assignTaskToPeer ? 'inverse' : 'secondary'}>Assign to {recipientName}</Text></Pressable>
+                </View>
+                <Pressable onPress={() => void handleCreateTask()} style={[styles.primaryAction, { backgroundColor: theme.primary }]}><Text variant="bodyMedium" colorRole="inverse">Add task</Text></Pressable>
+                <FlatList
+                  data={tasks}
+                  keyExtractor={(item) => item.id}
+                  style={styles.toolList}
+                  ListEmptyComponent={<Text variant="caption" colorRole="secondary">No tasks or notes yet.</Text>}
+                  renderItem={({ item }) => (
+                    <Pressable onPress={() => void toggleTask(item)} style={styles.taskRow}>
+                      <Ionicons name={item.completedAt ? 'checkbox' : 'square-outline'} size={20} color={theme.primary} />
+                      <View style={{ flex: 1 }}>
+                        <Text variant="body" style={item.completedAt ? styles.completedTask : undefined}>{item.title}</Text>
+                        {!!item.body && <Text variant="caption" colorRole="secondary">{item.body}</Text>}
+                        <Text variant="caption" colorRole="disabled">Assigned to {item.assignedTo === user?.id ? 'you' : recipientName}</Text>
+                      </View>
+                    </Pressable>
+                  )}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -701,4 +1057,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     flex: 1,
   },
+  pinnedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.sm,
+    marginHorizontal: tokens.spacing.md,
+    marginTop: tokens.spacing.xs,
+    borderRadius: tokens.radii.md,
+    backgroundColor: '#E6F4EA',
+  },
+  pinnedBannerText: { flex: 1, color: '#164D3D' },
+  undoBar: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: tokens.spacing.md,
+    backgroundColor: '#263238',
+  },
+  undoText: { color: '#FFFFFF' },
+  undoButton: { paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.xs },
+  undoButtonText: { color: '#80CBC4', fontWeight: '700' },
+  dialogBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: tokens.spacing.lg,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: tokens.radii.lg,
+    padding: tokens.spacing.lg,
+    gap: tokens.spacing.sm,
+  },
+  dialogOption: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#D8DEE3',
+  },
+  dialogDismiss: { alignSelf: 'flex-end', paddingTop: tokens.spacing.sm, paddingHorizontal: tokens.spacing.sm },
+  dialogActions: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: tokens.spacing.sm },
+  editInput: { minHeight: 100, borderWidth: 1, borderRadius: tokens.radii.sm, padding: tokens.spacing.sm, textAlignVertical: 'top' },
+  singleLineInput: { minHeight: 46, borderWidth: 1, borderRadius: tokens.radii.sm, paddingHorizontal: tokens.spacing.sm },
+  dialogTitleRow: { flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.sm },
+  primaryAction: { minHeight: 44, borderRadius: tokens.radii.pill, justifyContent: 'center', alignItems: 'center', paddingHorizontal: tokens.spacing.md },
+  toolList: { maxHeight: 180 },
+  toolListItem: { paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#D8DEE3' },
+  taskRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingVertical: 8 },
+  assignChoice: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: tokens.radii.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: '#D8DEE3' },
+  completedTask: { textDecorationLine: 'line-through', color: '#8696A0' },
 });

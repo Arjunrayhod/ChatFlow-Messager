@@ -10,6 +10,9 @@ import {
   UserStoryGroup,
   CreateStatusDto,
   CallRecord,
+  ChatExpense,
+  ChatTask,
+  ScheduledChatMessage,
 } from '@chatflow/shared';
 
 import { Platform } from 'react-native';
@@ -347,6 +350,91 @@ export async function getMessageHistory(
     return createErrorResponse('INTERNAL_ERROR', message);
   }
 }
+
+export async function getChatPreferences(token: string, chatId: string): Promise<ApiResponse<{ disappearingSeconds: number }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/preferences`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, cache: 'no-store',
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    return createErrorResponse('INTERNAL_ERROR', error instanceof Error ? error.message : 'Could not load chat settings');
+  }
+}
+
+export async function setChatDisappearing(token: string, chatId: string, seconds: number): Promise<ApiResponse<{ disappearingSeconds: number }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/preferences`, {
+      method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ seconds }),
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    return createErrorResponse('INTERNAL_ERROR', error instanceof Error ? error.message : 'Could not update chat settings');
+  }
+}
+
+export async function editChatMessage(token: string, chatId: string, messageId: string, content: string): Promise<ApiResponse<ChatMessage>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}`, {
+      method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ content }),
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    return createErrorResponse('INTERNAL_ERROR', error instanceof Error ? error.message : 'Could not edit message');
+  }
+}
+
+export async function setMessagePinned(token: string, chatId: string, messageId: string, pinned: boolean): Promise<ApiResponse<{ messageId: string; pinned: boolean }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/pin`, {
+      method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ pinned }),
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    return createErrorResponse('INTERNAL_ERROR', error instanceof Error ? error.message : 'Could not pin message');
+  }
+}
+
+export async function setMessageHidden(token: string, chatId: string, messageId: string, hidden: boolean): Promise<ApiResponse<{ messageId: string; hidden: boolean }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/hide`, {
+      method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ hidden }),
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    return createErrorResponse('INTERNAL_ERROR', error instanceof Error ? error.message : 'Could not update message visibility');
+  }
+}
+
+async function chatFeatureRequest<T>(token: string, path: string, method = 'GET', body?: unknown): Promise<ApiResponse<T>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/messages/${path}`, {
+      method,
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      cache: 'no-store',
+    });
+    return await response.json();
+  } catch (error: unknown) {
+    return createErrorResponse('INTERNAL_ERROR', error instanceof Error ? error.message : 'Chat action failed');
+  }
+}
+
+const chatPath = (chatId: string, suffix: string) => `${encodeURIComponent(chatId)}/${suffix}`;
+export const getChatExpenses = (token: string, chatId: string) => chatFeatureRequest<ChatExpense[]>(token, chatPath(chatId, 'expenses'));
+export const createChatExpense = (token: string, chatId: string, expense: { title: string; amount: number; paidBy: string; splitBetween: string[] }) =>
+  chatFeatureRequest<ChatExpense>(token, chatPath(chatId, 'expenses'), 'POST', expense);
+export const getChatTasks = (token: string, chatId: string) => chatFeatureRequest<ChatTask[]>(token, chatPath(chatId, 'tasks'));
+export const createChatTask = (token: string, chatId: string, task: { title: string; body?: string | null; assignedTo?: string | null }) =>
+  chatFeatureRequest<ChatTask>(token, chatPath(chatId, 'tasks'), 'POST', task);
+export const setChatTaskCompleted = (token: string, chatId: string, taskId: string, completed: boolean) =>
+  chatFeatureRequest<ChatTask>(token, `${chatPath(chatId, 'tasks')}/${encodeURIComponent(taskId)}`, 'PUT', { completed });
+export const scheduleChatMessage = (token: string, chatId: string, content: string, sendAt: string) =>
+  chatFeatureRequest<ScheduledChatMessage>(token, chatPath(chatId, 'scheduled'), 'POST', { content, sendAt });
 
 export interface UploadMediaPayload {
   fileName: string;

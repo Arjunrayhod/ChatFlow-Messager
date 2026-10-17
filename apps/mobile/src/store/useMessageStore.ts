@@ -31,6 +31,8 @@ export interface MessageState {
   receiveMessage: (message: ChatMessage, clientTempId?: string) => void;
   setUserTyping: (chatId: string, username: string, isTyping: boolean) => void;
   updateMessageStatus: (messageId: string, chatId: string, status: MessageDeliveryStatus) => void;
+  patchMessage: (chatId: string, messageId: string, updates: Partial<ChatMessage>) => void;
+  removeMessageLocally: (chatId: string, messageId: string) => void;
   startTyping: (chatId: string) => void;
   stopTyping: (chatId: string) => void;
 }
@@ -178,6 +180,24 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         [chatId]: updated,
       },
     });
+  },
+
+  patchMessage: (chatId, messageId, updates) => {
+    const { messagesByChatId } = get();
+    const existing = messagesByChatId[chatId] || [];
+    set({ messagesByChatId: {
+      ...messagesByChatId,
+      [chatId]: existing.map((message) => message.id === messageId ? { ...message, ...updates } : message),
+    } });
+  },
+
+  removeMessageLocally: (chatId, messageId) => {
+    const { messagesByChatId } = get();
+    const existing = messagesByChatId[chatId] || [];
+    set({ messagesByChatId: {
+      ...messagesByChatId,
+      [chatId]: existing.filter((message) => message.id !== messageId),
+    } });
   },
 
   startTyping: (chatId: string) => {

@@ -40,6 +40,9 @@ export interface ChatMessage {
   createdAt: string;
   updatedAt: string;
   isDeleted: boolean;
+  editedAt?: string | null;
+  expiresAt?: string | null;
+  isPinned?: boolean;
 }
 
 /** Participant in a conversation. */
@@ -63,4 +66,38 @@ export interface ChatSummary {
   unreadCount: number;
   updatedAt: string;
   participants: UserProfile[];
+}
+
+export interface ChatExpense {
+  id: string;
+  chatId: string;
+  createdBy: string;
+  title: string;
+  amount: number;
+  currency: string;
+  paidBy: string;
+  splitBetween: string[];
+  createdAt: string;
+}
+
+export interface ChatTask {
+  id: string;
+  chatId: string;
+  createdBy: string;
+  assignedTo: string | null;
+  title: string;
+  body: string | null;
+  dueAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface ScheduledChatMessage {
+  id: string;
+  chatId: string;
+  senderId?: string;
+  content: string;
+  sendAt: string;
+  status: 'pending' | 'sending' | 'sent' | 'cancelled' | 'failed';
+  createdAt: string;
 }

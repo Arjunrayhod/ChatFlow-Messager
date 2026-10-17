@@ -25,6 +25,9 @@ import {
   UserStoryGroup,
   CreateStatusDto,
   CallRecord,
+  ChatExpense,
+  ChatTask,
+  ScheduledChatMessage,
 } from '@chatflow/shared';
 import fs from 'fs';
 import path from 'path';
@@ -38,6 +41,12 @@ export class DatabaseService {
   private memoryUsers: Map<string, User> = new Map();
   // In-memory messages store: chatId -> ChatMessage[]
   private memoryMessages: Map<string, ChatMessage[]> = new Map();
+  private memoryChatExpiry: Map<string, number> = new Map();
+  private memoryHiddenMessages: Map<string, Set<string>> = new Map();
+  private memoryPinnedMessages: Map<string, Set<string>> = new Map();
+  private memoryChatExpenses: Map<string, ChatExpense[]> = new Map();
+  private memoryChatTasks: Map<string, ChatTask[]> = new Map();
+  private memoryScheduledMessages: Map<string, ScheduledChatMessage[]> = new Map();
   // In-memory status store: statusId -> StatusItem
   private memoryStatuses: Map<string, StatusItem> = new Map();
   // In-memory status views: statusId -> StatusViewer[]
@@ -590,6 +599,10 @@ export class DatabaseService {
     metadata?: Record<string, unknown> | null
   ): Promise<ChatMessage> {
     const now = new Date().toISOString();
+    const disappearingSeconds = await this.getChatDisappearingSeconds(chatId);
+    const expiresAt = disappearingSeconds > 0
+      ? new Date(Date.now() + disappearingSeconds * 1000).toISOString()
+      : null;
     const message: ChatMessage = {
       id: randomUUID(),
       chatId,
@@ -603,6 +616,9 @@ export class DatabaseService {
       createdAt: now,
       updatedAt: now,
       isDeleted: false,
+      editedAt: null,
+      expiresAt,
+      isPinned: false,
     };
 
     if (this.supabase) {
@@ -619,6 +635,7 @@ export class DatabaseService {
           reply_to_id: message.replyToId,
           created_at: message.createdAt,
           updated_at: message.updatedAt,
+          expires_at: message.expiresAt,
         });
         if (error) throw error;
       } catch (err) {
@@ -638,18 +655,35 @@ export class DatabaseService {
   /**
    * Fetches message history for a given chatId.
    */
-  async getMessages(chatId: string, limit = 50): Promise<ChatMessage[]> {
+  async getMessages(chatId: string, limit = 50, userId?: string): Promise<ChatMessage[]> {
     if (this.supabase) {
       try {
-        const { data, error } = await this.supabase
+        let query = this.supabase
           .from('messages')
           .select('*')
           .eq('chat_id', chatId)
           .order('created_at', { ascending: false })
           .limit(limit);
+        if (userId) query = query.or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
+        const { data, error } = await query;
 
         if (!error && data) {
-          return data.reverse().map((row: any) => ({
+          let rows = data;
+          if (userId && rows.length) {
+            const { data: hiddenRows } = await this.supabase
+              .from('message_hidden_for')
+              .select('message_id')
+              .eq('user_id', userId)
+              .in('message_id', rows.map((row: any) => String(row.id)));
+            const hiddenIds = new Set((hiddenRows || []).map((row: any) => String(row.message_id)));
+            rows = rows.filter((row: any) => !hiddenIds.has(String(row.id)));
+          }
+          const { data: pinnedRows } = await this.supabase
+            .from('pinned_messages')
+            .select('message_id')
+            .eq('chat_id', chatId);
+          const pinnedIds = new Set((pinnedRows || []).map((row: any) => String(row.message_id)));
+          return rows.reverse().map((row: any) => ({
             id: String(row.id),
             chatId: String(row.chat_id),
             senderId: String(row.sender_id),
@@ -662,6 +696,9 @@ export class DatabaseService {
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),
             isDeleted: Boolean(row.is_deleted),
+            editedAt: row.edited_at ? String(row.edited_at) : null,
+            expiresAt: row.expires_at ? String(row.expires_at) : null,
+            isPinned: pinnedIds.has(String(row.id)),
           }));
         }
       } catch (err) {
@@ -670,7 +707,243 @@ export class DatabaseService {
     }
 
     const messages = this.memoryMessages.get(chatId) || [];
-    return messages.slice(-limit);
+    const hidden = userId ? this.memoryHiddenMessages.get(userId) : undefined;
+    const now = Date.now();
+    return messages.filter((message) =>
+      (!message.expiresAt || Date.parse(message.expiresAt) > now) &&
+      !(hidden?.has(message.id))
+    ).slice(-limit).map((message) => ({
+      ...message,
+      isPinned: this.memoryPinnedMessages.get(chatId)?.has(message.id) || false,
+    }));
+  }
+
+  async getChatDisappearingSeconds(chatId: string): Promise<number> {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('chat_preferences')
+        .select('disappearing_seconds').eq('chat_id', chatId).maybeSingle();
+      if (!error && data) return Number(data.disappearing_seconds) || 0;
+    }
+    return this.memoryChatExpiry.get(chatId) || 0;
+  }
+
+  async setChatDisappearingSeconds(chatId: string, userId: string, seconds: number): Promise<boolean> {
+    if (![0, 86400, 604800, 7776000].includes(seconds)) return false;
+    if (this.supabase) {
+      const { error } = await this.supabase.from('chat_preferences').upsert({
+        chat_id: chatId, updated_by: userId, disappearing_seconds: seconds,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'chat_id' });
+      if (error) throw error;
+    }
+    this.memoryChatExpiry.set(chatId, seconds);
+    return true;
+  }
+
+  async editMessage(chatId: string, messageId: string, senderId: string, content: string): Promise<ChatMessage | null> {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('messages')
+        .update({ content, edited_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', messageId).eq('chat_id', chatId).eq('sender_id', senderId)
+        .eq('type', 'text')
+        .gte('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString())
+        .select('*').maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      return this.mapMessageRow(data);
+    }
+    const msg = this.memoryMessages.get(chatId)?.find((m) => m.id === messageId && m.senderId === senderId);
+    if (!msg || msg.type !== 'text' || Date.now() - Date.parse(msg.createdAt) > 15 * 60 * 1000) return null;
+    msg.content = content;
+    msg.editedAt = new Date().toISOString();
+    msg.updatedAt = msg.editedAt;
+    return { ...msg };
+  }
+
+  async hideMessageFor(chatId: string, messageId: string, userId: string, hidden: boolean): Promise<boolean> {
+    if (this.supabase) {
+      const { data: message, error: lookupError } = await this.supabase.from('messages')
+        .select('id').eq('id', messageId).eq('chat_id', chatId).maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!message) return false;
+      const query = this.supabase.from('message_hidden_for');
+      const result = hidden
+        ? await query.upsert({ message_id: messageId, user_id: userId }, { onConflict: 'message_id,user_id' })
+        : await query.delete().eq('message_id', messageId).eq('user_id', userId);
+      if (result.error) throw result.error;
+    }
+    if (!this.supabase && !(this.memoryMessages.get(chatId) || []).some((message) => message.id === messageId)) return false;
+    if (!this.memoryHiddenMessages.has(userId)) this.memoryHiddenMessages.set(userId, new Set());
+    const hiddenSet = this.memoryHiddenMessages.get(userId)!;
+    if (hidden) hiddenSet.add(messageId); else hiddenSet.delete(messageId);
+    return true;
+  }
+
+  async setMessagePinned(chatId: string, messageId: string, userId: string, pinned: boolean): Promise<boolean> {
+    if (this.supabase) {
+      const { data: message, error: lookupError } = await this.supabase.from('messages')
+        .select('id').eq('id', messageId).eq('chat_id', chatId).maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!message) return false;
+      const query = this.supabase.from('pinned_messages');
+      const result = pinned
+        ? await query.upsert({ chat_id: chatId, message_id: messageId, pinned_by: userId }, { onConflict: 'chat_id,message_id' })
+        : await query.delete().eq('chat_id', chatId).eq('message_id', messageId);
+      if (result.error) throw result.error;
+    }
+    if (!this.supabase && !(this.memoryMessages.get(chatId) || []).some((message) => message.id === messageId)) return false;
+    if (!this.memoryPinnedMessages.has(chatId)) this.memoryPinnedMessages.set(chatId, new Set());
+    const pins = this.memoryPinnedMessages.get(chatId)!;
+    if (pinned) pins.add(messageId); else pins.delete(messageId);
+    return true;
+  }
+
+  private mapMessageRow(row: any): ChatMessage {
+    return {
+      id: String(row.id), chatId: String(row.chat_id), senderId: String(row.sender_id),
+      type: (row.type as MessageType) || 'text', content: String(row.content),
+      mediaUrl: row.media_url ? String(row.media_url) : null, metadata: row.metadata || null,
+      status: (row.status as MessageDeliveryStatus) || 'sent',
+      replyToId: row.reply_to_id ? String(row.reply_to_id) : null,
+      createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+      isDeleted: Boolean(row.is_deleted), editedAt: row.edited_at ? String(row.edited_at) : null,
+      expiresAt: row.expires_at ? String(row.expires_at) : null,
+    };
+  }
+
+  async deleteExpiredMessages(): Promise<number> {
+    const now = new Date().toISOString();
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('messages').delete()
+        .not('expires_at', 'is', null).lte('expires_at', now).select('id');
+      if (error) throw error;
+      return data?.length || 0;
+    }
+    let count = 0;
+    for (const [chatId, messages] of this.memoryMessages.entries()) {
+      const active = messages.filter((message) => {
+        const expired = Boolean(message.expiresAt && Date.parse(message.expiresAt) <= Date.now());
+        if (expired) count += 1;
+        return !expired;
+      });
+      this.memoryMessages.set(chatId, active);
+    }
+    return count;
+  }
+
+  async createChatExpense(data: Omit<ChatExpense, 'id' | 'createdAt'>): Promise<ChatExpense> {
+    const expense: ChatExpense = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
+    if (this.supabase) {
+      const { data: row, error } = await this.supabase.from('chat_expenses').insert({
+        chat_id: expense.chatId, created_by: expense.createdBy, title: expense.title,
+        amount: expense.amount, currency: expense.currency, paid_by: expense.paidBy,
+        split_between: expense.splitBetween,
+      }).select('*').single();
+      if (error) throw error;
+      return { id: String(row.id), chatId: String(row.chat_id), createdBy: String(row.created_by),
+        title: String(row.title), amount: Number(row.amount), currency: String(row.currency),
+        paidBy: String(row.paid_by), splitBetween: row.split_between || [], createdAt: String(row.created_at) };
+    }
+    this.memoryChatExpenses.set(expense.chatId, [...(this.memoryChatExpenses.get(expense.chatId) || []), expense]);
+    return expense;
+  }
+
+  async getChatExpenses(chatId: string): Promise<ChatExpense[]> {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('chat_expenses').select('*').eq('chat_id', chatId).order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map((row: any) => ({ id: String(row.id), chatId: String(row.chat_id), createdBy: String(row.created_by),
+        title: String(row.title), amount: Number(row.amount), currency: String(row.currency), paidBy: String(row.paid_by),
+        splitBetween: row.split_between || [], createdAt: String(row.created_at) }));
+    }
+    return this.memoryChatExpenses.get(chatId) || [];
+  }
+
+  async createChatTask(data: Omit<ChatTask, 'id' | 'createdAt' | 'completedAt'>): Promise<ChatTask> {
+    const task: ChatTask = { ...data, id: randomUUID(), completedAt: null, createdAt: new Date().toISOString() };
+    if (this.supabase) {
+      const { data: row, error } = await this.supabase.from('chat_tasks').insert({
+        chat_id: task.chatId, created_by: task.createdBy, assigned_to: task.assignedTo,
+        title: task.title, body: task.body, due_at: task.dueAt,
+      }).select('*').single();
+      if (error) throw error;
+      return { id: String(row.id), chatId: String(row.chat_id), createdBy: String(row.created_by), assignedTo: row.assigned_to || null,
+        title: String(row.title), body: row.body || null, dueAt: row.due_at || null, completedAt: row.completed_at || null, createdAt: String(row.created_at) };
+    }
+    this.memoryChatTasks.set(task.chatId, [...(this.memoryChatTasks.get(task.chatId) || []), task]);
+    return task;
+  }
+
+  async getChatTasks(chatId: string): Promise<ChatTask[]> {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('chat_tasks').select('*').eq('chat_id', chatId).order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map((row: any) => ({ id: String(row.id), chatId: String(row.chat_id), createdBy: String(row.created_by),
+        assignedTo: row.assigned_to || null, title: String(row.title), body: row.body || null,
+        dueAt: row.due_at || null, completedAt: row.completed_at || null, createdAt: String(row.created_at) }));
+    }
+    return this.memoryChatTasks.get(chatId) || [];
+  }
+
+  async completeChatTask(chatId: string, taskId: string, completed: boolean): Promise<ChatTask | null> {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('chat_tasks').update({ completed_at: completed ? new Date().toISOString() : null })
+        .eq('chat_id', chatId).eq('id', taskId).select('*').maybeSingle();
+      if (error) throw error;
+      return data ? { id: String(data.id), chatId: String(data.chat_id), createdBy: String(data.created_by), assignedTo: data.assigned_to || null,
+        title: String(data.title), body: data.body || null, dueAt: data.due_at || null, completedAt: data.completed_at || null, createdAt: String(data.created_at) } : null;
+    }
+    const task = (this.memoryChatTasks.get(chatId) || []).find((item) => item.id === taskId);
+    if (!task) return null;
+    task.completedAt = completed ? new Date().toISOString() : null;
+    return task;
+  }
+
+  async createScheduledMessage(data: { chatId: string; senderId: string; content: string; sendAt: string }): Promise<ScheduledChatMessage> {
+    const scheduled: ScheduledChatMessage = { id: randomUUID(), chatId: data.chatId, senderId: data.senderId, content: data.content,
+      sendAt: data.sendAt, status: 'pending', createdAt: new Date().toISOString() };
+    if (this.supabase) {
+      const { data: row, error } = await this.supabase.from('scheduled_messages').insert({
+        chat_id: data.chatId, sender_id: data.senderId, content: data.content, send_at: data.sendAt,
+      }).select('*').single();
+      if (error) throw error;
+      return { id: String(row.id), chatId: String(row.chat_id), content: String(row.content), sendAt: String(row.send_at), status: row.status, createdAt: String(row.created_at) };
+    }
+    this.memoryScheduledMessages.set(data.chatId, [...(this.memoryScheduledMessages.get(data.chatId) || []), scheduled]);
+    return scheduled;
+  }
+
+  async claimDueScheduledMessages(): Promise<Array<{ id: string; chatId: string; senderId: string; content: string }>> {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.from('scheduled_messages').select('id,chat_id,sender_id,content')
+        .eq('status', 'pending').lte('send_at', new Date().toISOString()).limit(50);
+      if (error) throw error;
+      const claimed: Array<{ id: string; chatId: string; senderId: string; content: string }> = [];
+      for (const row of data || []) {
+        const { data: claim, error: claimError } = await this.supabase.from('scheduled_messages')
+          .update({ status: 'sending' }).eq('id', row.id).eq('status', 'pending').select('id').maybeSingle();
+        if (claimError) throw claimError;
+        if (claim) claimed.push({ id: String(row.id), chatId: String(row.chat_id), senderId: String(row.sender_id), content: String(row.content) });
+      }
+      return claimed;
+    }
+    return Array.from(this.memoryScheduledMessages.values()).flat()
+      .filter((item) => item.status === 'pending' && Date.parse(item.sendAt) <= Date.now())
+      .map((item) => { item.status = 'sending' as ScheduledChatMessage['status']; return { id: item.id, chatId: item.chatId, senderId: item.senderId || '', content: item.content }; });
+  }
+
+  async finishScheduledMessage(id: string, messageId: string | null, failed = false): Promise<void> {
+    if (this.supabase) {
+      const { error } = await this.supabase.from('scheduled_messages').update({
+        status: failed ? 'failed' : 'sent', sent_message_id: messageId,
+      }).eq('id', id).eq('status', 'sending');
+      if (error) throw error;
+      return;
+    }
+    for (const entries of this.memoryScheduledMessages.values()) {
+      const scheduled = entries.find((item) => item.id === id);
+      if (scheduled) scheduled.status = failed ? 'failed' : 'sent';
+    }
   }
 
   /**

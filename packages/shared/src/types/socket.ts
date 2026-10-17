@@ -24,6 +24,7 @@ export interface ClientToServerEvents {
   typing_stop: (payload: { chatId: string }) => void;
   message_delivered: (payload: { messageId: string; chatId: string }) => void;
   message_read: (payload: { messageId: string; chatId: string }) => void;
+  refresh_chat: (payload: { chatId: string }) => void;
 
   // WebRTC Calling (Phase 5)
   call_initiate: (payload: {
@@ -82,6 +83,7 @@ export interface ServerToClientEvents {
     message: ChatMessage;
     clientTempId?: string;
   }) => void;
+  chat_refresh: (payload: { chatId: string }) => void;
   user_typing: (payload: {
     chatId: string;
     userId: string;
