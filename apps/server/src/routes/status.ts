@@ -31,6 +31,7 @@ import {
 import { requireAuth } from '../middlewares/auth';
 import { db } from '../services/db';
 import { logger } from '../utils/logger';
+import { extensionForMimeType, isValidBase64Payload } from '../utils/media';
 
 export const statusRouter: Router = Router();
 
@@ -51,7 +52,7 @@ const createStatusSchema = z.object({
 const uploadStatusSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.string().trim().min(1).max(100),
-  data: z.string().min(1, 'File payload required'),
+  data: z.string().min(1, 'File payload required').max(90_000_000),
   mediaType: z.enum(['image', 'video']),
   caption: z.string().trim().max(1000).optional().nullable(),
   backgroundColor: z.string().trim().optional().nullable(),
@@ -132,7 +133,12 @@ statusRouter.post('/upload', requireAuth, async (req: Request, res: Response): P
     return;
   }
 
-  const { fileName, mimeType: _mimeType, data, mediaType, caption, backgroundColor } = parseResult.data;
+  const { mimeType, data, mediaType, caption, backgroundColor } = parseResult.data;
+  const extension = extensionForMimeType(mimeType);
+  if (!extension || !mimeType.startsWith(`${mediaType}/`)) {
+    res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'File type does not match the status media type'));
+    return;
+  }
 
   try {
     const currentUser = await db.findUserByFirebaseUid(req.uid);
@@ -143,11 +149,14 @@ statusRouter.post('/upload', requireAuth, async (req: Request, res: Response): P
 
     // Strip base64 prefix
     const base64Data = data.replace(/^data:[^;]+;base64,/, '');
+    if (!isValidBase64Payload(base64Data, 64 * 1024 * 1024)) {
+      res.status(400).json(createErrorResponse('VALIDATION_FAILED', 'Media must be valid base64 and no larger than 64 MB'));
+      return;
+    }
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Generate safe storage filename
-    const sanitizedExt = path.extname(fileName) || (mediaType === 'image' ? '.jpg' : '.mp4');
-    const diskFileName = `status_${Date.now()}_${Math.random().toString(36).substring(2, 9)}${sanitizedExt}`;
+    // Derive the public file extension from the validated media type, never user input.
+    const diskFileName = `status_${Date.now()}_${Math.random().toString(36).substring(2, 9)}${extension}`;
     const destinationPath = path.join(UPLOADS_DIR, diskFileName);
 
     // Save bit-for-bit uncompressed file

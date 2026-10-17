@@ -38,6 +38,12 @@ messagesRouter.get(
       return;
     }
 
+    const currentUser = await db.findUserByFirebaseUid(req.uid);
+    if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+      res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+      return;
+    }
+
     const messages = await db.getMessages(chatId, 100);
 
     // Normalize legacy senderIds (dev UIDs or email keys) to canonical user IDs
@@ -84,19 +90,29 @@ messagesRouter.post(
     }
 
     const currentUser = await db.findUserByFirebaseUid(req.uid);
-    const senderId = currentUser ? currentUser.id : req.uid;
+    if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
+      res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
+      return;
+    }
+    const senderId = currentUser.id;
 
     const { content, type, mediaUrl, replyToId, metadata } = parseResult.data;
 
-    const message = await db.saveMessage(
-      chatId,
-      senderId,
-      content,
-      type,
-      mediaUrl,
-      replyToId,
-      metadata
-    );
+    let message;
+    try {
+      message = await db.saveMessage(
+        chatId,
+        senderId,
+        content,
+        type,
+        mediaUrl,
+        replyToId,
+        metadata
+      );
+    } catch {
+      res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Failed to save message'));
+      return;
+    }
 
     // Ensure reciprocal contacts in inbox
     const participants = chatId.split('_');
