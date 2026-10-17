@@ -86,9 +86,9 @@ export const useAuthStore = create<AuthState>()(
         try {
           let token: string;
 
-          if (isFirebaseConfigured() && !gmailAddress) {
-            // [HINGLISH]: Live Firebase Google popup
-            const { idToken } = await signInWithGoogleReal();
+          if (isFirebaseConfigured()) {
+            // [HINGLISH]: Live Firebase Google popup; optional email narrows account selection.
+            const { idToken } = await signInWithGoogleReal(gmailAddress);
             token = idToken;
           } else if (gmailAddress) {
             const cleanEmail = gmailAddress.trim().toLowerCase();

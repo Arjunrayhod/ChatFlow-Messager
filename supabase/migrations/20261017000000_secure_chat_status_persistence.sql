@@ -1,8 +1,8 @@
 -- Chat IDs are deterministic strings created by the mobile client, not chats.id UUIDs.
 -- Keep legacy rows while allowing new direct conversations to persist.
 ALTER TABLE public.messages DROP CONSTRAINT IF EXISTS messages_chat_id_fkey;
-ALTER TABLE public.messages ALTER COLUMN chat_id TYPE TEXT USING chat_id::text;
 DROP POLICY IF EXISTS "Users can view messages in chats they belong to" ON public.messages;
+ALTER TABLE public.messages ALTER COLUMN chat_id TYPE TEXT USING chat_id::text;
 CREATE POLICY "Users can view messages in chats they belong to"
   ON public.messages FOR SELECT
   USING (
