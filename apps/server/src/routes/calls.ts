@@ -34,12 +34,14 @@ callsRouter.get('/ice-servers', requireAuth, async (req: Request, res: Response)
     const username = `${expiry}:${req.uid}`;
     const credential = createHmac('sha1', env.TURN_SHARED_SECRET).update(username).digest('base64');
     const host = env.TURN_HOST.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const urls = [
+      `turn:${host}:${env.TURN_UDP_PORT}?transport=udp`,
+      `turn:${host}:${env.TURN_TCP_PORT}?transport=tcp`,
+    ];
+    // Only advertise TURNS when a TLS listener with a valid certificate is deployed.
+    if (env.TURN_TLS_ENABLED) urls.push(`turns:${host}:${env.TURNS_PORT}?transport=tcp`);
     iceServers.push({
-      urls: [
-        `turn:${host}:${env.TURN_UDP_PORT}?transport=udp`,
-        `turn:${host}:${env.TURN_TCP_PORT}?transport=tcp`,
-        `turns:${host}:${env.TURNS_PORT}?transport=tcp`,
-      ],
+      urls,
       username,
       credential,
     });

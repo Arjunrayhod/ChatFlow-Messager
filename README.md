@@ -50,13 +50,14 @@ TURN_HOST=turn.your-domain.example
 TURN_SHARED_SECRET=replace-with-the-same-static-auth-secret-configured-in-coturn
 TURN_UDP_PORT=3478
 TURN_TCP_PORT=3478
-TURNS_PORT=5349
 TURN_TTL_SECONDS=3600
 ```
 
 Keep `TURN_SHARED_SECRET` on the server only. The authenticated `/api/calls/ice-servers` endpoint creates short-lived per-user credentials for the browser and APK. Until the relay is configured, the app falls back to STUN; calls can fail on networks that require relaying.
 
-A ready-to-run Coturn configuration is provided in `coturn/turnserver.conf` and `coturn/docker-compose.yml`. You can spin up a dedicated relay on any cloud server or VPS with:
+A Coturn configuration is provided in `coturn/turnserver.conf` and `coturn/docker-compose.yml`. It enables UDP/TCP TURN on port 3478. Copy `coturn/.env.example` to `coturn/.env`, generate a random 64-character hex secret, then use that exact value for both `TURN_SHARED_SECRET` in the backend and `coturn/.env`. Never commit the real secret. The relay host must allow inbound UDP/TCP 3478 and UDP relay ports 49152–65535; if it is behind NAT, configure Coturn's external IP. TURNS/TLS is not advertised by default; enable it only after installing a valid certificate and configuring Coturn's TLS listener.
+
+Start the dedicated relay on a cloud server or VPS with:
 ```bash
 cd coturn
 docker compose up -d
