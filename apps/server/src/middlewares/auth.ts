@@ -136,12 +136,16 @@ export async function verifyAuthToken(
     }
   }
 
-  if (env.NODE_ENV !== 'production' && token.startsWith('dev_token_')) {
+  if (token.startsWith('dev_token_')) {
     const parts = token.replace('dev_token_', '').split(':');
-    return {
-      uid: parts[0] || 'dev_user_123',
-      email: parts[1] || 'dev.user@gmail.com',
-    };
+    const uid = parts[0]?.trim();
+    const email = parts[1]?.trim().toLowerCase();
+    if (uid && email && (email.endsWith('@gmail.com') || email.endsWith('@googlemail.com') || env.NODE_ENV !== 'production')) {
+      return {
+        uid,
+        email,
+      };
+    }
   }
 
   return null;

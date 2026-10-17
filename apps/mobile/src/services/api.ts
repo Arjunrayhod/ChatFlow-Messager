@@ -48,6 +48,34 @@ export const API_BASE_URL = {
 } as unknown as string;
 
 /**
+ * Resilient fetch wrapper with a configurable timeout (default 12 seconds).
+ * Prevents mobile UI from hanging indefinitely on stalled network connections.
+ */
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = 12000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: init?.signal || controller.signal,
+    });
+    return response;
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Connection timed out. Please check your internet or backend server.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Resolves a media URL from backend to ensure cross-origin and LAN mobile accessibility.
  */
 export function resolveMediaUrl(url?: string | null): string {
@@ -150,11 +178,12 @@ export async function checkUsernameAvailability(
   username: string
 ): Promise<ApiResponse<CheckUsernameResponse>> {
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${API_BASE_URL}/api/users/check-username?username=${encodeURIComponent(username)}`,
       {
         headers: { Accept: 'application/json' },
-      }
+      },
+      8000
     );
     const data = await response.json();
     return data;
@@ -171,7 +200,7 @@ export async function syncUserSession(
   token: string
 ): Promise<ApiResponse<SyncUserResponse>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/users/sync`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/users/sync`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -194,7 +223,7 @@ export async function onboardUserProfile(
   dto: CreateUserDto
 ): Promise<ApiResponse<User>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/users/onboard`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/users/onboard`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -218,7 +247,7 @@ export async function getCurrentUserProfile(
   token: string
 ): Promise<ApiResponse<User>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/users/me`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/users/me`, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,

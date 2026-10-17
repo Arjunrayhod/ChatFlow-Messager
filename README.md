@@ -67,8 +67,8 @@ docker compose up -d
 
 In `apps/mobile/.env` and GitHub Actions (`.github/workflows/build-apk.yml`), the mobile app points to your production HTTPS backend:
 ```env
-EXPO_PUBLIC_API_URL=https://chatflow-backend.onrender.com
-EXPO_PUBLIC_SOCKET_URL=https://chatflow-backend.onrender.com
+EXPO_PUBLIC_API_URL=https://chatflow-arjun.duckdns.org
+EXPO_PUBLIC_SOCKET_URL=https://chatflow-arjun.duckdns.org
 ```
 Secrets like `TURN_SHARED_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` are strictly excluded from the mobile build.
 
