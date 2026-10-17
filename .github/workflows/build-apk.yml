@@ -148,16 +148,18 @@ jobs:
         working-directory: apps/mobile/android
         run: chmod +x gradlew
 
-      - name: 📱 Assemble Android APK (Direct Install)
+      - name: 📱 Assemble Android APK with JavaScript bundle
         working-directory: apps/mobile/android
         env:
           GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: 🏷️ Prepare APK artifact
         run: |
           mkdir -p build-output
-          find apps/mobile/android/app/build/outputs/apk -name "*.apk" -exec cp {} build-output/ChatFlow.apk \;
+          release_apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$release_apk"
+          cp "$release_apk" build-output/ChatFlow.apk
           ls -la build-output/
 
       - name: 📤 Upload APK Artifact
