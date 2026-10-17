@@ -85,6 +85,21 @@ jobs:
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --clean --no-install
 
+      - name: 🔧 Resolve React Native Gradle plugin path
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          settings = Path("apps/mobile/android/settings.gradle")
+          contents = settings.read_text()
+          old = "includeBuild(expoAutolinking.reactNativeGradlePlugin)"
+          new = '''includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().toString())'''
+          if old not in contents:
+              raise SystemExit("Expected Expo React Native Gradle plugin entry was not found in settings.gradle")
+          settings.write_text(contents.replace(old, new))
+          print("Resolved the React Native Gradle plugin directly from the installed React Native package.")
+          PY
+
       - name: 🛠️ Grant execute permission for Gradle wrapper
         working-directory: apps/mobile/android
         run: chmod +x gradlew
