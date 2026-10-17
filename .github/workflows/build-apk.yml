@@ -151,6 +151,7 @@ jobs:
       - name: 📱 Assemble Android APK with JavaScript bundle
         working-directory: apps/mobile/android
         env:
+          NODE_ENV: production
           GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
