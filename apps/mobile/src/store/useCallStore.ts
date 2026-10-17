@@ -351,9 +351,9 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
             if (!current || current.callId !== callId || current.status === 'ended') return;
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = null;
-            emitCallEnd(callId, partner.id, get().callDuration, 'Media connection failed');
+            emitCallEnd(callId, partner.id, get().callDuration, 'Could not connect; check internet or TURN relay configuration');
             webrtcService.destroy();
-            set({ activeCall: { ...current, status: 'ended', endReason: 'Media connection failed' } });
+            set({ activeCall: { ...current, status: 'ended', endReason: 'Could not connect. Check the internet or TURN relay.' } });
           }
         },
       );
@@ -361,7 +361,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       // 3. Create SDP Offer with explicit type
       const offer = await webrtcService.createOffer(type);
       if (offer) {
-        emitCallInitiate(callId, partner.id, type, offer);
+        await emitCallInitiate(callId, partner.id, type, offer);
         signalingStarted = true;
         pendingCandidates.forEach((candidate) => emitCallIceCandidate(callId, partner.id, candidate as any));
       } else throw new Error('Could not create call offer');
@@ -369,10 +369,10 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       console.warn('[useCallStore] startCall error:', err);
       ringtoneService.stopAll();
       webrtcService.destroy();
-      Alert.alert(
-        'Call Error',
-        'Call shuru karne me samasya aayi. Kripya microphone ya camera permission check karein.'
-      );
+      const message = err instanceof Error && err.message.includes('permission or device')
+        ? 'Microphone/camera permission ya device check karein.'
+        : 'Call server se connect nahi ho payi. Internet aur TURN relay configuration check karein.';
+      Alert.alert('Call Error', message);
       set({ activeCall: null, localStream: null });
     }
   },
@@ -423,9 +423,9 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
             if (!current || current.callId !== activeCall.callId || current.status === 'ended') return;
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = null;
-            emitCallEnd(activeCall.callId, activeCall.partner.id, get().callDuration, 'Media connection failed');
+            emitCallEnd(activeCall.callId, activeCall.partner.id, get().callDuration, 'Could not connect; check internet or TURN relay configuration');
             webrtcService.destroy();
-            set({ activeCall: { ...current, status: 'ended', endReason: 'Media connection failed' } });
+            set({ activeCall: { ...current, status: 'ended', endReason: 'Could not connect. Check the internet or TURN relay.' } });
           }
         },
       );
@@ -448,10 +448,10 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       console.warn('[useCallStore] answerCall error:', err);
       ringtoneService.stopAll();
       webrtcService.destroy();
-      Alert.alert(
-        'Call Answer Error',
-        'Call answer karne me samasya aayi. Kripya microphone/camera permission check karein.'
-      );
+      const message = err instanceof Error && err.message.includes('permission or device')
+        ? 'Microphone/camera permission ya device check karein.'
+        : 'Call server se connect nahi ho payi. Internet aur TURN relay configuration check karein.';
+      Alert.alert('Call Answer Error', message);
       set({ activeCall: null, localStream: null });
     }
   },

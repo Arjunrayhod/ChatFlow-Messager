@@ -286,7 +286,7 @@ export function initSocketServer(
     // =========================================================================
 
     // A. Initiate Call (Sender sends offer)
-    socket.on('call_initiate', async ({ callId, receiverId, type, sdp }) => {
+    socket.on('call_initiate', async ({ callId, receiverId, type, sdp }, acknowledge) => {
       try {
         let callerUser = await db.findUserById(userId);
         if (!callerUser) {
@@ -301,7 +301,9 @@ export function initSocketServer(
         }
 
         if (!callerUser || !receiverUser || callerUser.id === receiverUser.id || (await db.findCallById(callId))) {
-          socket.emit('error', { code: 'CALL_NOT_ALLOWED', message: 'Call participants or call ID are invalid' });
+          const error = 'Call participants or call ID are invalid';
+          socket.emit('error', { code: 'CALL_NOT_ALLOWED', message: error });
+          acknowledge?.({ ok: false, error });
           return;
         }
 
@@ -372,8 +374,12 @@ export function initSocketServer(
           type,
           sdp,
         });
+        // The caller must not relay trickled ICE candidates until the call record
+        // exists; otherwise fast candidates can arrive here and be silently dropped.
+        acknowledge?.({ ok: true });
       } catch (err) {
         logger.error({ err, callId }, 'Failed to initiate call');
+        acknowledge?.({ ok: false, error: 'Call could not be initialized' });
       }
     });
 

@@ -14,7 +14,7 @@
  *    - Red Hang Up button (Call End)
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -34,55 +34,68 @@ import CallVideoPlayer from './CallVideoPlayer';
 // Dedicated Web Audio Element Component for reliable voice playback
 function WebAudioPlayer({ stream }: { stream: MediaStream | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
+
+  const playRemoteAudio = useCallback(async () => {
+    const el = audioRef.current;
+    if (!el || !stream) return;
+    stream.getAudioTracks().forEach((track) => { track.enabled = true; });
+    if (el.srcObject !== stream) el.srcObject = stream;
+    try {
+      await el.play();
+      setPlaybackBlocked(false);
+    } catch (err) {
+      console.warn('[WebAudioPlayer] Browser blocked remote audio playback:', err);
+      setPlaybackBlocked(true);
+    }
+  }, [stream]);
 
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
 
-    const playStream = () => {
-      if (!el || !stream) return;
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      if (el.srcObject !== stream) {
-        el.srcObject = stream;
-      }
-      const playPromise = el.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          console.warn('[WebAudioPlayer] play error:', err);
-        });
-      }
-    };
-
     if (stream) {
-      playStream();
-      stream.addEventListener('addtrack', playStream);
+      void playRemoteAudio();
+      stream.addEventListener('addtrack', playRemoteAudio);
       return () => {
-        stream.removeEventListener('addtrack', playStream);
+        stream.removeEventListener('addtrack', playRemoteAudio);
       };
     } else {
       el.srcObject = null;
+      setPlaybackBlocked(false);
     }
-  }, [stream]);
+  }, [stream, playRemoteAudio]);
 
   if (Platform.OS !== 'web') return null;
 
   return (
-    <audio
-      ref={audioRef}
-      autoPlay
-      playsInline
-      style={{
-        position: 'fixed',
-        top: -9999,
-        left: -9999,
-        width: 1,
-        height: 1,
-        opacity: 0.01,
-        pointerEvents: 'none',
-      }}
-    />
+    <>
+      <audio
+        ref={audioRef}
+        autoPlay
+        playsInline
+        style={{
+          position: 'fixed',
+          top: -9999,
+          left: -9999,
+          width: 1,
+          height: 1,
+          opacity: 0.01,
+          pointerEvents: 'none',
+        }}
+      />
+      {playbackBlocked && stream?.getAudioTracks().length ? (
+        <Pressable
+          onPress={() => void playRemoteAudio()}
+          accessibilityRole="button"
+          accessibilityLabel="Enable call audio"
+          style={styles.enableAudioButton}
+        >
+          <Ionicons name="volume-high" size={18} color="#FFFFFF" />
+          <Text variant="caption" style={styles.enableAudioText}>Tap to hear call audio</Text>
+        </Pressable>
+      ) : null}
+    </>
   );
 }
 
@@ -428,6 +441,23 @@ const styles = StyleSheet.create({
   encryptionNote: {
     color: '#667781',
     marginTop: tokens.spacing.xs,
+  },
+  enableAudioButton: {
+    position: 'absolute',
+    top: 12,
+    alignSelf: 'center',
+    zIndex: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#176B5B',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: tokens.radii.pill,
+  },
+  enableAudioText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   videoTopHeader: {
     position: 'absolute',

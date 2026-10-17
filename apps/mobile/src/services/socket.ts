@@ -185,10 +185,17 @@ export function emitCallInitiate(
   receiverId: string,
   type: CallType,
   sdp: unknown
-): void {
-  if (socketInstance) {
-    socketInstance.emit('call_initiate', { callId, receiverId, type, sdp });
-  }
+): Promise<void> {
+  if (!socketInstance) return Promise.reject(new Error('Signaling connection is unavailable'));
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Call signaling timed out')), 10000);
+    socketInstance!.emit('call_initiate', { callId, receiverId, type, sdp }, (result) => {
+      clearTimeout(timeout);
+      if (result?.ok) resolve();
+      else reject(new Error(result?.error || 'Call signaling was rejected'));
+    });
+  });
 }
 
 /**
