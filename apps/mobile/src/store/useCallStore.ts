@@ -76,6 +76,15 @@ export interface CallStoreState {
 
 let timerInterval: any = null;
 let callAuthToken = '';
+const PHONE_BROWSER_HTTPS_ERROR =
+  'Phone browser calling ke liye HTTPS zaroori hai. Local IP/HTTP se microphone access blocked hai; HTTPS link ya APK use karein.';
+
+function getWebMediaSecurityError(): string | null {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && !window.isSecureContext) {
+    return PHONE_BROWSER_HTTPS_ERROR;
+  }
+  return null;
+}
 
 function startCallDurationTimer(set: (partial: any) => void): void {
   if (timerInterval) clearInterval(timerInterval);
@@ -285,21 +294,26 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
    */
   startCall: async (partner: CallParticipant, type: CallType) => {
     const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const securityError = getWebMediaSecurityError();
 
     set({
       activeCall: {
         callId,
         partner,
         type,
-        status: 'calling',
+        status: securityError ? 'ended' : 'calling',
         direction: 'outgoing',
+        endReason: securityError || undefined,
       },
       callDuration: 0,
       isMuted: false,
       isVideoOff: false,
     });
 
-    ringtoneService.startOutgoingRingback();
+    // An insecure phone-browser origin cannot acquire a microphone. Stop here
+    // before playing ringback or signaling a call that can never be answered.
+    if (securityError) return;
+
     webrtcService.unlockAudio();
     const pendingCandidates: unknown[] = [];
     let signalingStarted = false;
@@ -364,16 +378,25 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         await emitCallInitiate(callId, partner.id, type, offer);
         signalingStarted = true;
         pendingCandidates.forEach((candidate) => emitCallIceCandidate(callId, partner.id, candidate as any));
+        const current = get().activeCall;
+        if (current?.callId === callId && ['calling', 'ringing'].includes(current.status)) {
+          ringtoneService.startOutgoingRingback();
+        }
       } else throw new Error('Could not create call offer');
     } catch (err) {
       console.warn('[useCallStore] startCall error:', err);
       ringtoneService.stopAll();
       webrtcService.destroy();
       const message = err instanceof Error && err.message.includes('permission or device')
-        ? 'Microphone/camera permission ya device check karein.'
+        ? 'Microphone/camera permission allow karein aur device check karein.'
         : 'Call server se connect nahi ho payi. Internet aur TURN relay configuration check karein.';
       Alert.alert('Call Error', message);
-      set({ activeCall: null, localStream: null });
+      const current = get().activeCall;
+      set({
+        activeCall: current?.callId === callId ? { ...current, status: 'ended', endReason: message } : null,
+        localStream: null,
+        remoteStream: null,
+      });
     }
   },
 
@@ -383,6 +406,14 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
   answerCall: async () => {
     const { activeCall } = get();
     if (!activeCall || activeCall.direction !== 'incoming' || !activeCall.incomingSdp) return;
+
+    const securityError = getWebMediaSecurityError();
+    if (securityError) {
+      ringtoneService.stopAll();
+      emitCallReject(activeCall.callId, activeCall.partner.id, securityError);
+      set({ activeCall: { ...activeCall, status: 'ended', endReason: securityError } });
+      return;
+    }
 
     ringtoneService.stopAll();
     webrtcService.unlockAudio();
@@ -449,10 +480,15 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       ringtoneService.stopAll();
       webrtcService.destroy();
       const message = err instanceof Error && err.message.includes('permission or device')
-        ? 'Microphone/camera permission ya device check karein.'
+        ? 'Microphone/camera permission allow karein aur device check karein.'
         : 'Call server se connect nahi ho payi. Internet aur TURN relay configuration check karein.';
       Alert.alert('Call Answer Error', message);
-      set({ activeCall: null, localStream: null });
+      const current = get().activeCall;
+      set({
+        activeCall: current?.callId === activeCall.callId ? { ...current, status: 'ended', endReason: message } : null,
+        localStream: null,
+        remoteStream: null,
+      });
     }
   },
 
