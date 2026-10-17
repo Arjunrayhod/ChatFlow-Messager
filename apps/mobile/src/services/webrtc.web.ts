@@ -29,7 +29,6 @@ export class WebRTCService {
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
   private currentFacing: 'user' | 'environment' = 'user';
-  private remoteAudio: HTMLAudioElement | null = null;
   private candidateQueue: RTCIceCandidateInit[] = [];
 
   private onRemoteStreamCallback?: (stream: MediaStream) => void;
@@ -201,7 +200,6 @@ export class WebRTCService {
         this.remoteStream = stream;
       }
 
-      this.playRemoteAudio(stream);
       this.onRemoteStreamCallback?.(stream);
     };
 
@@ -235,80 +233,12 @@ export class WebRTCService {
   }
 
   /**
-   * Helper to get or create remote audio playback DOM element.
-   * Avoids display: 'none' which triggers mobile browser audio throttling.
-   */
-  private getOrCreateAudioElement(): HTMLAudioElement | null {
-    if (typeof document === 'undefined') return null;
-    if (!this.remoteAudio) {
-      const audio = document.createElement('audio');
-      audio.autoplay = true;
-      (audio as any).playsInline = true;
-      audio.setAttribute('playsinline', 'true');
-      audio.setAttribute('autoplay', 'true');
-      // Position offscreen instead of display: none to guarantee audio engine keeps running
-      audio.style.position = 'fixed';
-      audio.style.top = '-9999px';
-      audio.style.left = '-9999px';
-      audio.style.width = '1px';
-      audio.style.height = '1px';
-      audio.style.opacity = '0.01';
-      audio.style.pointerEvents = 'none';
-      document.body.appendChild(audio);
-      this.remoteAudio = audio;
-    }
-    return this.remoteAudio;
-  }
-
-  /**
    * Mobile browsers (iOS Safari, Chrome Android) require a user gesture to unlock Web Audio playback.
    * Call this on "Start Call" or "Answer Call" press.
    */
   unlockAudio() {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
-    try {
-      const audio = this.getOrCreateAudioElement();
-      if (audio) {
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(() => {
-            // normal if empty src
-          });
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  /**
-   * Plays remote audio stream through dedicated audio element.
-   */
-  private playRemoteAudio(stream: MediaStream) {
-    if (typeof document === 'undefined') return;
-    try {
-      const audio = this.getOrCreateAudioElement();
-      if (!audio) return;
-
-      // Ensure all audio tracks are active
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = true;
-      });
-
-      audio.srcObject = stream;
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            console.log('[WebRTCService] playRemoteAudio playback active');
-          })
-          .catch((err) => {
-            console.warn('[WebRTCService] playRemoteAudio autoplay blocked or delayed:', err);
-          });
-      }
-    } catch (err) {
-      console.warn('[WebRTCService] playRemoteAudio error:', err);
-    }
+    // Remote playback is owned by ActiveCallModal. It offers an explicit
+    // user-gesture retry when browser autoplay policy blocks call audio.
   }
 
   /**
@@ -519,14 +449,6 @@ export class WebRTCService {
         // ignore
       }
       this.pc = null;
-    }
-    if (this.remoteAudio) {
-      try {
-        this.remoteAudio.pause();
-        this.remoteAudio.srcObject = null;
-      } catch {
-        // ignore
-      }
     }
     this.remoteStream = null;
   }

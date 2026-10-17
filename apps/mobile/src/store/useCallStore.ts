@@ -76,6 +76,15 @@ export interface CallStoreState {
 
 let timerInterval: any = null;
 let callAuthToken = '';
+const WEB_MEDIA_HTTPS_ERROR =
+  'Browser calling ke liye secure URL zaroori hai. PC par http://localhost:8081 kholen; phone par HTTPS link ya APK use karein.';
+
+function getWebMediaSecurityError(): string | null {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && !window.isSecureContext) {
+    return WEB_MEDIA_HTTPS_ERROR;
+  }
+  return null;
+}
 
 function startCallDurationTimer(set: (partial: any) => void): void {
   if (timerInterval) clearInterval(timerInterval);
@@ -254,17 +263,12 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
           ...activeCall,
           status: 'ended',
         },
+        localStream: null,
+        remoteStream: null,
       });
-
-      setTimeout(() => {
-        webrtcService.destroy();
-        set({
-          activeCall: null,
-          localStream: null,
-          remoteStream: null,
-          callDuration: 0,
-        });
-      }, 1500);
+      // Release microphone/camera tracks immediately, but leave the ended-call
+      // screen visible so the user can dismiss it with the call control.
+      webrtcService.destroy();
     });
 
     // G. Call Missed
@@ -285,21 +289,26 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
    */
   startCall: async (partner: CallParticipant, type: CallType) => {
     const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const securityError = getWebMediaSecurityError();
 
     set({
       activeCall: {
         callId,
         partner,
         type,
-        status: 'calling',
+        status: securityError ? 'ended' : 'calling',
         direction: 'outgoing',
+        endReason: securityError || undefined,
       },
       callDuration: 0,
       isMuted: false,
       isVideoOff: false,
     });
 
-    ringtoneService.startOutgoingRingback();
+    // An insecure phone-browser origin cannot acquire a microphone. Stop here
+    // before playing ringback or signaling a call that can never be answered.
+    if (securityError) return;
+
     webrtcService.unlockAudio();
     const pendingCandidates: unknown[] = [];
     let signalingStarted = false;
@@ -351,9 +360,9 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
             if (!current || current.callId !== callId || current.status === 'ended') return;
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = null;
-            emitCallEnd(callId, partner.id, get().callDuration, 'Media connection failed');
+            emitCallEnd(callId, partner.id, get().callDuration, 'Could not connect; check internet or TURN relay configuration');
             webrtcService.destroy();
-            set({ activeCall: { ...current, status: 'ended', endReason: 'Media connection failed' } });
+            set({ activeCall: { ...current, status: 'ended', endReason: 'Could not connect. Check the internet or TURN relay.' } });
           }
         },
       );
@@ -361,19 +370,28 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       // 3. Create SDP Offer with explicit type
       const offer = await webrtcService.createOffer(type);
       if (offer) {
-        emitCallInitiate(callId, partner.id, type, offer);
+        await emitCallInitiate(callId, partner.id, type, offer);
         signalingStarted = true;
         pendingCandidates.forEach((candidate) => emitCallIceCandidate(callId, partner.id, candidate as any));
+        const current = get().activeCall;
+        if (current?.callId === callId && ['calling', 'ringing'].includes(current.status)) {
+          ringtoneService.startOutgoingRingback();
+        }
       } else throw new Error('Could not create call offer');
     } catch (err) {
       console.warn('[useCallStore] startCall error:', err);
       ringtoneService.stopAll();
       webrtcService.destroy();
-      Alert.alert(
-        'Call Error',
-        'Call shuru karne me samasya aayi. Kripya microphone ya camera permission check karein.'
-      );
-      set({ activeCall: null, localStream: null });
+      const message = err instanceof Error && err.message.includes('permission or device')
+        ? 'Microphone/camera permission allow karein aur device check karein.'
+        : 'Call server se connect nahi ho payi. Internet aur TURN relay configuration check karein.';
+      Alert.alert('Call Error', message);
+      const current = get().activeCall;
+      set({
+        activeCall: current?.callId === callId ? { ...current, status: 'ended', endReason: message } : null,
+        localStream: null,
+        remoteStream: null,
+      });
     }
   },
 
@@ -383,6 +401,14 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
   answerCall: async () => {
     const { activeCall } = get();
     if (!activeCall || activeCall.direction !== 'incoming' || !activeCall.incomingSdp) return;
+
+    const securityError = getWebMediaSecurityError();
+    if (securityError) {
+      ringtoneService.stopAll();
+      emitCallReject(activeCall.callId, activeCall.partner.id, securityError);
+      set({ activeCall: { ...activeCall, status: 'ended', endReason: securityError } });
+      return;
+    }
 
     ringtoneService.stopAll();
     webrtcService.unlockAudio();
@@ -423,9 +449,9 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
             if (!current || current.callId !== activeCall.callId || current.status === 'ended') return;
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = null;
-            emitCallEnd(activeCall.callId, activeCall.partner.id, get().callDuration, 'Media connection failed');
+            emitCallEnd(activeCall.callId, activeCall.partner.id, get().callDuration, 'Could not connect; check internet or TURN relay configuration');
             webrtcService.destroy();
-            set({ activeCall: { ...current, status: 'ended', endReason: 'Media connection failed' } });
+            set({ activeCall: { ...current, status: 'ended', endReason: 'Could not connect. Check the internet or TURN relay.' } });
           }
         },
       );
@@ -448,11 +474,16 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       console.warn('[useCallStore] answerCall error:', err);
       ringtoneService.stopAll();
       webrtcService.destroy();
-      Alert.alert(
-        'Call Answer Error',
-        'Call answer karne me samasya aayi. Kripya microphone/camera permission check karein.'
-      );
-      set({ activeCall: null, localStream: null });
+      const message = err instanceof Error && err.message.includes('permission or device')
+        ? 'Microphone/camera permission allow karein aur device check karein.'
+        : 'Call server se connect nahi ho payi. Internet aur TURN relay configuration check karein.';
+      Alert.alert('Call Answer Error', message);
+      const current = get().activeCall;
+      set({
+        activeCall: current?.callId === activeCall.callId ? { ...current, status: 'ended', endReason: message } : null,
+        localStream: null,
+        remoteStream: null,
+      });
     }
   },
 

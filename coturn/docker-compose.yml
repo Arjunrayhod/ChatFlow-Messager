@@ -6,8 +6,9 @@ services:
     container_name: chatflow-coturn
     restart: always
     network_mode: host
+    environment:
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:?Set TURN_SHARED_SECRET in coturn/.env}
     volumes:
       - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-    command:
-      - -c
-      - /etc/coturn/turnserver.conf
+      - ./start-coturn.sh:/usr/local/bin/start-coturn.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/start-coturn.sh"]

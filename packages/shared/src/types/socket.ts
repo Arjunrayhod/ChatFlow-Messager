@@ -31,7 +31,7 @@ export interface ClientToServerEvents {
     receiverId: string;
     type: CallType;
     sdp: unknown;
-  }) => void;
+  }, acknowledge?: (result: { ok: boolean; error?: string }) => void) => void;
   call_answer: (payload: {
     callId: string;
     callerId: string;

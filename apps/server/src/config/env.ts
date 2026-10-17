@@ -30,6 +30,7 @@ const envSchema = z.object({
   TURN_SHARED_SECRET: z.string().optional(),
   TURN_UDP_PORT: z.coerce.number().default(3478),
   TURN_TCP_PORT: z.coerce.number().default(3478),
+  TURN_TLS_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   TURNS_PORT: z.coerce.number().default(5349),
   TURN_TTL_SECONDS: z.coerce.number().min(60).max(86400).default(3600),
 });

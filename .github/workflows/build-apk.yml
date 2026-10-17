@@ -47,10 +47,16 @@ jobs:
           cache: 'pnpm'
 
       - name: ⚙️ Configure Production Mobile Build Environment
+        env:
+          BACKEND_URL: ${{ inputs.backend_url }}
         run: |
-          TARGET_URL="${{ inputs.backend_url }}"
+          TARGET_URL="${BACKEND_URL}"
           if [ -z "$TARGET_URL" ]; then
             TARGET_URL="https://chatflow-backend.onrender.com"
+          fi
+          if [[ ! "$TARGET_URL" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
+            echo "backend_url must be an http(s) origin without a path"
+            exit 1
           fi
           echo "Setting mobile build environment to production: $TARGET_URL"
           touch apps/mobile/.env
