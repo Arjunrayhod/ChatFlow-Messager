@@ -13,6 +13,8 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme, Platform, PermissionsAndroid } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useFonts } from 'expo-font';
+import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../src/theme/tokens';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useCallStore } from '../src/store/useCallStore';
@@ -30,6 +32,10 @@ import { registerForIncomingCallPush } from '../src/services/notifications';
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
+
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+  });
 
   const token = useAuthStore((state) => state.token);
   const initCallListeners = useCallStore((state) => state.initCallListeners);
@@ -182,6 +188,10 @@ export default function RootLayout() {
       };
     }
   }, []);
+
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
 
   return (
     <SafeAreaProvider>

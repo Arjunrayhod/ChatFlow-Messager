@@ -91,6 +91,16 @@ jobs:
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --clean --no-install
 
+      - name: 🔤 Bundle Vector Icon Fonts into Android Assets
+        run: |
+          mkdir -p apps/mobile/android/app/src/main/assets/fonts
+          find node_modules -name "Ionicons.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
+          find node_modules -name "MaterialIcons.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
+          find node_modules -name "MaterialCommunityIcons.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
+          find node_modules -name "FontAwesome.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
+          echo "Bundled fonts into Android assets:"
+          ls -la apps/mobile/android/app/src/main/assets/fonts
+
       - name: 🔧 Configure Android Gradle build
         run: |
           python3 - <<'PY'
