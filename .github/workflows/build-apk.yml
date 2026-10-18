@@ -155,6 +155,16 @@ jobs:
           GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
+      - name: 🔐 Show APK signing certificate fingerprint
+        shell: bash
+        run: |
+          apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          test -s "$apk"
+          test -x "$apksigner"
+          "$apksigner" verify --print-certs "$apk" | tee /tmp/chatflow-apk-cert.txt
+          grep -E 'Signer #[0-9]+ certificate SHA-1 digest:' /tmp/chatflow-apk-cert.txt
+
       - name: 🏷️ Prepare APK artifact
         run: |
           mkdir -p build-output
