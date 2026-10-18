@@ -37,6 +37,7 @@ import {
   clearCallHistory,
   getIncomingCallOffer,
 } from '../services/api';
+import { useAuthStore } from './useAuthStore';
 
 export interface ActiveCall {
   callId: string;
@@ -331,7 +332,8 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     let signalingStarted = false;
 
     try {
-      await webrtcService.configureIceServers(callAuthToken);
+      const activeToken = callAuthToken || useAuthStore.getState().token || '';
+      await webrtcService.configureIceServers(activeToken);
       // 1. Get user media stream with audio fallback for video
       let stream = await webrtcService.getLocalMedia(type);
       if (!stream && type === 'video') {
@@ -433,7 +435,8 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     let signalingStarted = false;
 
     try {
-      await webrtcService.configureIceServers(callAuthToken);
+      const activeToken = callAuthToken || useAuthStore.getState().token || '';
+      await webrtcService.configureIceServers(activeToken);
       // 1. Get user media stream with audio fallback
       let stream = await webrtcService.getLocalMedia(activeCall.type);
       if (!stream && activeCall.type === 'video') {
