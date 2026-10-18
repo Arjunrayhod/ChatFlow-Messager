@@ -74,6 +74,12 @@ jobs:
           fi
           if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > apps/mobile/google-services.json
+            WEB_CLIENT_ID="$(python3 -c 'import json; d=json.load(open("apps/mobile/google-services.json")); print(next((c["oauth_client_id"] for c in d["client"][0].get("oauth_client", []) if c.get("client_type") == 3), ""))')"
+            if [ -z "$WEB_CLIENT_ID" ]; then
+              echo "google-services.json is missing the Firebase Web OAuth client ID (client_type 3)"
+              exit 1
+            fi
+            echo "EXPO_PUBLIC_FIREBASE_WEB_CLIENT_ID=$WEB_CLIENT_ID" >> apps/mobile/.env
           fi
 
       - name: 📥 Install dependencies

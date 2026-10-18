@@ -22,7 +22,7 @@ import { BrandFooter } from '../src/components/atoms/BrandFooter';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useHealthStore } from '../src/store/useHealthStore';
 
-const LOGO_URI = '/logo.jpeg';
+const CHATFLOW_LOGO = require('../assets/logo.jpeg');
 
 export default function GatewayScreen() {
   const router = useRouter();
@@ -56,7 +56,7 @@ export default function GatewayScreen() {
       <View style={styles.centerBrand}>
         <View style={styles.logoContainer}>
           <Image
-            source={{ uri: LOGO_URI }}
+            source={CHATFLOW_LOGO}
             style={styles.logoImage}
             resizeMode="cover"
           />
