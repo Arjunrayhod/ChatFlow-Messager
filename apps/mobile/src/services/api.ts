@@ -121,7 +121,7 @@ export async function checkServerHealth(): Promise<ApiResponse<HealthCheckData>>
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch(`${API_BASE_URL}/health`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/health`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -269,7 +269,7 @@ export async function searchUsers(
   query: string
 ): Promise<ApiResponse<UserProfile[]>> {
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${API_BASE_URL}/api/users/search?q=${encodeURIComponent(query)}`,
       {
         headers: {
@@ -293,7 +293,7 @@ export async function getContacts(
   token: string
 ): Promise<ApiResponse<Contact[]>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/contacts`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/contacts`, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
@@ -317,7 +317,7 @@ export async function addContact(
   nickname?: string
 ): Promise<ApiResponse<Contact>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/contacts`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/contacts`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -342,7 +342,7 @@ export async function removeContact(
   contactUserId: string
 ): Promise<ApiResponse<RemoveContactResponse>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/contacts/${contactUserId}`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/contacts/${contactUserId}`, {
       method: 'DELETE',
       headers: {
         Accept: 'application/json',
@@ -365,7 +365,7 @@ export async function getMessageHistory(
   chatId: string
 ): Promise<ApiResponse<ChatMessage[]>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/messages/${chatId}`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/messages/${chatId}`, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
@@ -382,7 +382,7 @@ export async function getMessageHistory(
 
 export async function getChatPreferences(token: string, chatId: string): Promise<ApiResponse<{ disappearingSeconds: number }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/preferences`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/preferences`, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, cache: 'no-store',
     });
     return await response.json();
@@ -393,7 +393,7 @@ export async function getChatPreferences(token: string, chatId: string): Promise
 
 export async function setChatDisappearing(token: string, chatId: string, seconds: number): Promise<ApiResponse<{ disappearingSeconds: number }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/preferences`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/preferences`, {
       method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ seconds }),
     });
@@ -405,7 +405,7 @@ export async function setChatDisappearing(token: string, chatId: string, seconds
 
 export async function editChatMessage(token: string, chatId: string, messageId: string, content: string): Promise<ApiResponse<ChatMessage>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}`, {
       method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ content }),
     });
@@ -417,7 +417,7 @@ export async function editChatMessage(token: string, chatId: string, messageId: 
 
 export async function setMessagePinned(token: string, chatId: string, messageId: string, pinned: boolean): Promise<ApiResponse<{ messageId: string; pinned: boolean }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/pin`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/pin`, {
       method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ pinned }),
     });
@@ -429,7 +429,7 @@ export async function setMessagePinned(token: string, chatId: string, messageId:
 
 export async function setMessageHidden(token: string, chatId: string, messageId: string, hidden: boolean): Promise<ApiResponse<{ messageId: string; hidden: boolean }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/hide`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/hide`, {
       method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ hidden }),
     });
@@ -441,7 +441,7 @@ export async function setMessageHidden(token: string, chatId: string, messageId:
 
 async function chatFeatureRequest<T>(token: string, path: string, method = 'GET', body?: unknown): Promise<ApiResponse<T>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/messages/${path}`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/messages/${path}`, {
       method,
       headers: { Accept: 'application/json', Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
@@ -494,7 +494,7 @@ export async function uploadMedia(
   payload: UploadMediaPayload
 ): Promise<ApiResponse<UploadMediaResponse>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/upload`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/upload`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -517,7 +517,7 @@ export async function fetchStatusFeed(
   token: string
 ): Promise<ApiResponse<{ myStories: StatusItem[]; contactStories: UserStoryGroup[] }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/status/feed`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/status/feed`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -539,7 +539,7 @@ export async function createTextStatus(
   dto: CreateStatusDto
 ): Promise<ApiResponse<StatusItem>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/status/create`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/status/create`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -572,7 +572,7 @@ export async function uploadStatusMedia(
   payload: UploadStatusMediaPayload
 ): Promise<ApiResponse<StatusItem>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/status/upload`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/status/upload`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -597,7 +597,7 @@ export async function recordStatusView(
   hasScreenshotted = false
 ): Promise<ApiResponse<{ success: boolean; viewersCount: number }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}/view`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/status/${statusId}/view`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -621,7 +621,7 @@ export async function fetchStatusViewers(
   statusId: string
 ): Promise<ApiResponse<StatusViewer[]>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}/viewers`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/status/${statusId}/viewers`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -643,7 +643,7 @@ export async function deleteStatus(
   statusId: string
 ): Promise<ApiResponse<{ success: boolean; id: string }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/status/${statusId}`, {
       method: 'DELETE',
       headers: {
         'Accept': 'application/json',
@@ -665,7 +665,7 @@ export async function reportScreenshotAlert(
   statusId: string
 ): Promise<ApiResponse<{ alertRecorded: boolean; takerUsername: string; timestamp: string }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/status/${statusId}/screenshot-alert`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/status/${statusId}/screenshot-alert`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -685,7 +685,7 @@ export async function reportScreenshotAlert(
  */
 export async function getCalls(token: string): Promise<ApiResponse<CallRecord[]>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/calls`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/calls`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -707,7 +707,7 @@ export async function deleteCallRecord(
   callId: string
 ): Promise<ApiResponse<{ success: boolean; deletedId: string }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/calls/${callId}`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/calls/${callId}`, {
       method: 'DELETE',
       headers: {
         'Accept': 'application/json',
@@ -728,7 +728,7 @@ export async function clearCallHistory(
   token: string
 ): Promise<ApiResponse<{ success: boolean; cleared: boolean }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/calls`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/calls`, {
       method: 'DELETE',
       headers: {
         'Accept': 'application/json',
@@ -751,7 +751,7 @@ export interface IncomingCallOffer {
 
 export async function getIncomingCallOffer(token: string, callId: string): Promise<ApiResponse<IncomingCallOffer>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/calls/${encodeURIComponent(callId)}/offer`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/calls/${encodeURIComponent(callId)}/offer`, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
       cache: 'no-store',
     });
@@ -762,7 +762,7 @@ export async function getIncomingCallOffer(token: string, callId: string): Promi
 }
 
 export async function registerPushToken(token: string, pushToken: string, platform: 'ios' | 'android'): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/users/push-token`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/api/users/push-token`, {
     method: 'PUT',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ token: pushToken, platform }),
@@ -771,7 +771,7 @@ export async function registerPushToken(token: string, pushToken: string, platfo
 }
 
 export async function unregisterPushToken(token: string, pushToken: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/users/push-token`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/api/users/push-token`, {
     method: 'DELETE',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ token: pushToken }),

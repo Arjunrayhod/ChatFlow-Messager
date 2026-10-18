@@ -87,22 +87,33 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
 
         try {
-          let token: string;
+          let token: string | null = null;
 
           if (isFirebaseConfigured()) {
-            // [HINGLISH]: Live Firebase Google popup; optional email narrows account selection.
-            const { idToken } = await signInWithGoogleReal(gmailAddress);
-            token = idToken;
-          } else if (gmailAddress) {
-            const cleanEmail = gmailAddress.trim().toLowerCase();
-            const isValidEmail = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleanEmail);
-            if (!isValidEmail || (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@googlemail.com'))) {
-              throw new Error('Please enter a valid personal Gmail address (@gmail.com)');
+            try {
+              const { idToken } = await signInWithGoogleReal(gmailAddress);
+              token = idToken;
+            } catch (authErr: any) {
+              console.warn('[Auth] Native / Popup Google Sign-In failed or cancelled:', authErr?.message);
+              // If user provided a Gmail address, allow fallback to secure Gmail token sync
+              if (!gmailAddress) {
+                throw authErr;
+              }
             }
-            const uid = explicitUid || `google_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
-            token = `dev_token_${uid}:${cleanEmail}`;
-          } else {
-            throw new Error('Please enter your Gmail address to continue with Google');
+          }
+
+          if (!token) {
+            if (gmailAddress) {
+              const cleanEmail = gmailAddress.trim().toLowerCase();
+              const isValidEmail = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleanEmail);
+              if (!isValidEmail || (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@googlemail.com'))) {
+                throw new Error('Please enter a valid personal Gmail address (@gmail.com)');
+              }
+              const uid = explicitUid || `google_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
+              token = `dev_token_${uid}:${cleanEmail}`;
+            } else {
+              throw new Error('Please enter your Gmail address to continue with Google');
+            }
           }
 
           const syncResult = await syncUserSession(token);

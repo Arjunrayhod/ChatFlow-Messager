@@ -83,7 +83,7 @@ export async function signInWithGoogleReal(gmailAddress?: string): Promise<{
     }
 
     // Load only on native so the web bundle never initializes the native module.
-    const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+    const { GoogleSignin } = require('@react-native-google-signin/google-signin');
     GoogleSignin.configure({ webClientId });
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
     const response: any = await GoogleSignin.signIn();
@@ -132,7 +132,7 @@ export async function signInWithGoogleReal(gmailAddress?: string): Promise<{
 export async function signOutFromFirebase(): Promise<void> {
   if (Platform.OS !== 'web') {
     try {
-      const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
       await GoogleSignin.signOut();
     } catch {
       // Continue clearing the Firebase session even if Google sign-out is unavailable.
