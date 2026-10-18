@@ -74,18 +74,7 @@ jobs:
           fi
           if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > apps/mobile/google-services.json
-            WEB_CLIENT_ID="$(python3 -c '
-import json
-try:
-    d = json.load(open("apps/mobile/google-services.json"))
-    clients = d.get("client", [{}])[0].get("oauth_client", [])
-    web = next((c.get("client_id") or c.get("oauth_client_id") for c in clients if c.get("client_type") == 3), None)
-    if not web and clients:
-        web = clients[0].get("client_id") or clients[0].get("oauth_client_id")
-    print(web or "")
-except Exception:
-    print("")
-' 2>/dev/null || echo '')"
+            WEB_CLIENT_ID="$(python3 -c 'import json; d=json.load(open("apps/mobile/google-services.json")); cs=d.get("client",[{}])[0].get("oauth_client",[]); print(next((c.get("client_id") or c.get("oauth_client_id") for c in cs if c.get("client_type") == 3), next((c.get("client_id") or c.get("oauth_client_id") for c in cs), "")))' 2>/dev/null || echo '')"
             if [ -n "$WEB_CLIENT_ID" ]; then
               echo "Discovered Firebase OAuth Client ID: $WEB_CLIENT_ID"
               echo "EXPO_PUBLIC_FIREBASE_WEB_CLIENT_ID=$WEB_CLIENT_ID" >> apps/mobile/.env
