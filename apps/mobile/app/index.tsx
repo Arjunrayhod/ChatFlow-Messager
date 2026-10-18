@@ -33,17 +33,23 @@ export default function GatewayScreen() {
   const { checkHealth } = useHealthStore();
 
   useEffect(() => {
-    // Probe backend connectivity in background
-    void checkHealth();
+    // Probe backend connectivity in background safely
+    void checkHealth().catch((err) => {
+      console.warn('[Gateway] Health probe error ignored safely:', err);
+    });
 
     // Smooth splash delay for WhatsApp-style brand reveal
     const timer = setTimeout(() => {
-      if (isAuthenticated && isOnboarded) {
-        router.replace('/(tabs)/chats');
-      } else if (isAuthenticated && !isOnboarded) {
-        router.replace('/(auth)/onboarding');
-      } else {
-        router.replace('/(auth)/sign-in');
+      try {
+        if (isAuthenticated && isOnboarded) {
+          router.replace('/(tabs)/chats');
+        } else if (isAuthenticated && !isOnboarded) {
+          router.replace('/(auth)/onboarding');
+        } else {
+          router.replace('/(auth)/sign-in');
+        }
+      } catch (navErr) {
+        console.warn('[Gateway] Navigation transition error ignored safely:', navErr);
       }
     }, 600);
 

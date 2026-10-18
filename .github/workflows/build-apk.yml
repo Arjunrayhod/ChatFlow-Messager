@@ -93,12 +93,30 @@ jobs:
 
       - name: 🔤 Bundle Vector Icon Fonts into Android Assets
         run: |
-          mkdir -p apps/mobile/android/app/src/main/assets/fonts
-          find node_modules -name "Ionicons.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
-          find node_modules -name "MaterialIcons.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
-          find node_modules -name "MaterialCommunityIcons.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
-          find node_modules -name "FontAwesome.ttf" -exec cp -f {} apps/mobile/android/app/src/main/assets/fonts/ \;
-          echo "Bundled fonts into Android assets:"
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          
+          const pkgPath = require.resolve('@expo/vector-icons/package.json', { paths: [path.resolve('apps/mobile')] });
+          const fontsSrc = path.join(path.dirname(pkgPath), 'build/vendor/react-native-vector-icons/Fonts');
+          const targetDir = path.resolve('apps/mobile/android/app/src/main/assets/fonts');
+          
+          fs.mkdirSync(targetDir, { recursive: true });
+          const fontList = ['Ionicons.ttf', 'MaterialIcons.ttf', 'MaterialCommunityIcons.ttf', 'FontAwesome.ttf'];
+          
+          for (const font of fontList) {
+            const src = path.join(fontsSrc, font);
+            const dest = path.join(targetDir, font);
+            if (fs.existsSync(src)) {
+              fs.copyFileSync(src, dest);
+              const stat = fs.statSync(dest);
+              console.log(`Copied genuine font ${font}: ${stat.size} bytes`);
+            } else {
+              console.warn(`Font file not found in package: ${src}`);
+            }
+          }
+          NODE
+          echo "Verified bundled Android fonts:"
           ls -la apps/mobile/android/app/src/main/assets/fonts
 
       - name: 🔧 Configure Android Gradle build

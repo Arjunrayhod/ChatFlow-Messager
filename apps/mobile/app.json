@@ -38,13 +38,9 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font",
       "@react-native-google-signin/google-signin",
       ["expo-notifications", { "color": "#008f72", "defaultChannel": "incoming-calls" }],
       ["@config-plugins/react-native-webrtc", {"cameraPermission": "Allow ChatFlow to use your camera for video calls.", "microphonePermission": "Allow ChatFlow to use your microphone for calls."}]
-    ],
-    "assetBundlePatterns": [
-      "**/*"
     ],
     "scheme": "chatflow"
   }
