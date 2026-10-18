@@ -163,7 +163,7 @@ jobs:
           test -s "$apk"
           test -x "$apksigner"
           "$apksigner" verify --print-certs "$apk" | tee /tmp/chatflow-apk-cert.txt
-          grep -E 'Signer #[0-9]+ certificate SHA-1 digest:' /tmp/chatflow-apk-cert.txt
+          grep -E 'certificate SHA-1 digest:' /tmp/chatflow-apk-cert.txt
 
       - name: 🏷️ Prepare APK artifact
         run: |
