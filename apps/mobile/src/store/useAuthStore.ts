@@ -229,14 +229,38 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'chatflow_auth_session',
       storage: createJSONStorage(() => ({
-        getItem: async (key) => Platform.OS === 'web' ? webSafeStorage.getItem(key) : SecureStore.getItemAsync(key),
+        getItem: async (key) => {
+          try {
+            if (Platform.OS === 'web') return webSafeStorage.getItem(key);
+            if (SecureStore && typeof SecureStore.getItemAsync === 'function') {
+              return await SecureStore.getItemAsync(key);
+            }
+          } catch (e) {
+            console.warn('[useAuthStore] SecureStore getItemAsync failed safely:', e);
+          }
+          return null;
+        },
         setItem: async (key, value) => {
-          if (Platform.OS === 'web') webSafeStorage.setItem(key, value);
-          else await SecureStore.setItemAsync(key, value);
+          try {
+            if (Platform.OS === 'web') {
+              webSafeStorage.setItem(key, value);
+            } else if (SecureStore && typeof SecureStore.setItemAsync === 'function') {
+              await SecureStore.setItemAsync(key, value);
+            }
+          } catch (e) {
+            console.warn('[useAuthStore] SecureStore setItemAsync failed safely:', e);
+          }
         },
         removeItem: async (key) => {
-          if (Platform.OS === 'web') webSafeStorage.removeItem(key);
-          else await SecureStore.deleteItemAsync(key);
+          try {
+            if (Platform.OS === 'web') {
+              webSafeStorage.removeItem(key);
+            } else if (SecureStore && typeof SecureStore.deleteItemAsync === 'function') {
+              await SecureStore.deleteItemAsync(key);
+            }
+          } catch (e) {
+            console.warn('[useAuthStore] SecureStore deleteItemAsync failed safely:', e);
+          }
         },
       })),
       partialize: (state) => ({
