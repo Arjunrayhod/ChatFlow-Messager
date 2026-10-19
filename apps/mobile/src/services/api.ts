@@ -17,7 +17,7 @@ import {
 
 import { Platform } from 'react-native';
 
-export const DEFAULT_PRODUCTION_API_URL = 'https://chatflow-arjun.duckdns.org';
+export const DEFAULT_PRODUCTION_API_URL = 'https://chatflow-backend-1s66.onrender.com';
 
 export function getApiBaseUrl(): string {
   const configuredUrl = process.env.EXPO_PUBLIC_API_URL;

@@ -6,7 +6,7 @@ on:
       backend_url:
         description: 'Production Backend URL'
         required: false
-        default: 'https://chatflow-arjun.duckdns.org'
+        default: 'https://chatflow-backend-1s66.onrender.com'
   push:
     branches:
       - main
@@ -57,7 +57,7 @@ jobs:
         run: |
           TARGET_URL="${BACKEND_URL}"
           if [ -z "$TARGET_URL" ]; then
-            TARGET_URL="https://chatflow-arjun.duckdns.org"
+            TARGET_URL="https://chatflow-backend-1s66.onrender.com"
           fi
           if [[ ! "$TARGET_URL" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
             echo "backend_url must be an http(s) origin without a path"

@@ -17,7 +17,7 @@ import {
 } from '@chatflow/shared';
 import { Platform } from 'react-native';
 
-export const DEFAULT_PRODUCTION_SOCKET_URL = 'https://chatflow-arjun.duckdns.org';
+export const DEFAULT_PRODUCTION_SOCKET_URL = 'https://chatflow-backend-1s66.onrender.com';
 
 export function getSocketUrl(): string {
   const configuredUrls = [process.env.EXPO_PUBLIC_SOCKET_URL, process.env.EXPO_PUBLIC_API_URL].filter(Boolean) as string[];
