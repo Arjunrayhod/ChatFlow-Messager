@@ -17,8 +17,10 @@ import {
   View,
   StyleSheet,
   FlatList,
+  ScrollView,
   Modal,
   Pressable,
+  Platform,
   useColorScheme,
   ActivityIndicator,
   Alert,
@@ -40,6 +42,7 @@ import { CreateStatusModal } from '../../src/components/molecules/CreateStatusMo
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useChatStore } from '../../src/store/useChatStore';
 import { useStatusStore } from '../../src/store/useStatusStore';
+import { searchUsers as searchUsersApi } from '../../src/services/api';
 import { getSocket } from '../../src/services/socket';
 import { Contact, UserProfile, UserStoryGroup } from '@chatflow/shared';
 
@@ -187,6 +190,42 @@ export default function ChatsScreen() {
     );
   }, [contacts, inboxFilter]);
 
+  // Global search state for top search bar (Direct search on Desktop & Mobile)
+  const [globalResults, setGlobalResults] = useState<UserProfile[]>([]);
+  const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
+
+  // Debounced global user search from top search bar
+  useEffect(() => {
+    const q = inboxFilter.trim().replace(/^@/, '');
+    if (!token || q.length < 1) {
+      setGlobalResults([]);
+      setIsSearchingGlobal(false);
+      return;
+    }
+
+    setIsSearchingGlobal(true);
+    const handler = setTimeout(async () => {
+      try {
+        const res = await searchUsersApi(token, q);
+        if (res.ok) {
+          const contactUserIds = new Set(contacts.map((c) => c.contactUserId));
+          const filtered = res.data.filter(
+            (u) => u.id !== user?.id && !contactUserIds.has(u.id)
+          );
+          setGlobalResults(filtered);
+        } else {
+          setGlobalResults([]);
+        }
+      } catch {
+        setGlobalResults([]);
+      } finally {
+        setIsSearchingGlobal(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(handler);
+  }, [inboxFilter, token, contacts, user?.id]);
+
   const handleStartChatWithContact = (contact: Contact) => {
     // Clear unread count for this conversation
     useChatStore.getState().markChatAsRead(contact.contactUserId);
@@ -203,25 +242,31 @@ export default function ChatsScreen() {
   };
 
   const handleAddAndStartChat = async (targetUser: UserProfile) => {
-    if (!token) return;
-    setAddingUsername(targetUser.username);
+    closeNewChatModal();
+    setModalSearchText('');
+    setInboxFilter('');
 
-    const result = await addContact(token, targetUser.username);
-    setAddingUsername(null);
+    // Open chat room immediately!
+    router.push({
+      pathname: '/chat/[id]',
+      params: {
+        id: targetUser.id,
+        name: targetUser.displayName,
+        username: targetUser.username,
+      },
+    });
 
-    if (result.success) {
-      closeNewChatModal();
-      setModalSearchText('');
-      router.push({
-        pathname: '/chat/[id]',
-        params: {
-          id: targetUser.id,
-          name: targetUser.displayName,
-          username: targetUser.username,
-        },
-      });
-    } else {
-      Alert.alert('Notice', result.message || 'Could not add contact');
+    // In background, ensure they are saved to contacts list
+    if (token) {
+      void addContact(token, targetUser.username);
+    }
+  };
+
+  const handleTopSearchSubmit = () => {
+    if (filteredContacts.length > 0) {
+      handleStartChatWithContact(filteredContacts[0]);
+    } else if (globalResults.length > 0) {
+      void handleAddAndStartChat(globalResults[0]);
     }
   };
 
@@ -247,6 +292,8 @@ export default function ChatsScreen() {
           placeholder="Search by name or @username..."
           value={inboxFilter}
           onChangeText={setInboxFilter}
+          onSubmitEditing={handleTopSearchSubmit}
+          returnKeyType="search"
           style={styles.searchInput}
         />
         {inboxFilter.length > 0 ? (
@@ -283,73 +330,179 @@ export default function ChatsScreen() {
         </View>
       )}
 
-      {/* WhatsApp / Instagram Stories Tray */}
-      <StoriesTray
-        myStories={myStories}
-        contactStories={contactStories}
-        onOpenMyStatus={() => {
-          if (myStories.length > 0) {
-            setActiveStoryGroup({
-              userId: user?.id || 'me',
-              username: user?.username || 'me',
-              displayName: user?.displayName || 'My Status',
-              avatarUrl: user?.avatarUrl,
-              hasUnseen: false,
-              lastUpdated: myStories[myStories.length - 1].createdAt,
-              stories: myStories,
-            });
-            setIsStoryViewerOpen(true);
-          } else {
-            setIsStatusCreatorOpen(true);
-          }
-        }}
-        onAddNewStatus={() => setIsStatusCreatorOpen(true)}
-        onOpenContactStory={(group) => {
-          setActiveStoryGroup(group);
-          setIsStoryViewerOpen(true);
-        }}
-      />
+      {inboxFilter.trim().length > 0 ? (
+        /* Instant Search View for Desktop & Mobile */
+        <ScrollView
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: tokens.spacing.huge * 2 }}
+        >
+          {filteredContacts.length > 0 && (
+            <View>
+              <Text
+                variant="caption"
+                colorRole="secondary"
+                style={[styles.sectionHeader, { color: theme.textSecondary }]}
+              >
+                Chats ({filteredContacts.length})
+              </Text>
+              {filteredContacts.map((item) => (
+                <ChatListItem
+                  key={item.id}
+                  id={item.id}
+                  displayName={item.nickname || item.user.displayName}
+                  username={item.user.username}
+                  avatarUri={item.user.avatarUrl}
+                  presence={item.user.presenceStatus}
+                  lastMessage={item.lastMessage || `@${item.user.username} • Tap to message`}
+                  timestamp={formatWhatsAppTime(item.lastMessageTimestamp || item.createdAt)}
+                  unreadCount={item.unreadCount || 0}
+                  onPress={() => handleStartChatWithContact(item)}
+                />
+              ))}
+            </View>
+          )}
 
-      {/* Main Conversation / Contact List */}
-      {isLoadingContacts && contacts.length === 0 ? (
-        <View style={styles.loadingCenter}>
-          <ActivityIndicator size="large" color={theme.primary} />
-          <Text variant="caption" colorRole="secondary" style={styles.loadingText}>
-            Loading conversations...
-          </Text>
-        </View>
-      ) : filteredContacts.length > 0 ? (
-        <FlatList
-          data={filteredContacts}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <ChatListItem
-              id={item.id}
-              displayName={item.nickname || item.user.displayName}
-              username={item.user.username}
-              avatarUri={item.user.avatarUrl}
-              presence={item.user.presenceStatus}
-              lastMessage={item.lastMessage || `@${item.user.username} • Tap to message`}
-              timestamp={formatWhatsAppTime(item.lastMessageTimestamp || item.createdAt)}
-              unreadCount={item.unreadCount || 0}
-              onPress={() => handleStartChatWithContact(item)}
+          {isSearchingGlobal && (
+            <View style={styles.searchingGlobalRow}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <Text variant="caption" colorRole="secondary" style={{ marginLeft: tokens.spacing.xs }}>
+                Searching ChatFlow directory for "{inboxFilter.trim()}"...
+              </Text>
+            </View>
+          )}
+
+          {globalResults.length > 0 && (
+            <View>
+              <Text
+                variant="caption"
+                colorRole="secondary"
+                style={[styles.sectionHeader, { color: theme.textSecondary }]}
+              >
+                ChatFlow Users ({globalResults.length})
+              </Text>
+              {globalResults.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => void handleAddAndStartChat(item)}
+                  style={({ pressed }) => [
+                    styles.searchResultItem,
+                    {
+                      borderBottomColor: theme.divider,
+                      backgroundColor: pressed ? theme.surfaceEmphasized : 'transparent',
+                      cursor: (Platform.OS === 'web' ? 'pointer' : undefined) as any,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Chat with ${item.displayName}`}
+                >
+                  <Avatar
+                    name={item.displayName}
+                    uri={item.avatarUrl}
+                    size="md"
+                    presence={item.presenceStatus}
+                  />
+                  <View style={styles.searchResultInfo}>
+                    <Text variant="h4">{item.displayName}</Text>
+                    <Text variant="caption" colorRole="primary">
+                      @{item.username}
+                    </Text>
+                    {item.bio && (
+                      <Text variant="caption" colorRole="secondary" numberOfLines={1}>
+                        {item.bio}
+                      </Text>
+                    )}
+                  </View>
+                  <Button
+                    label="Chat"
+                    onPress={() => void handleAddAndStartChat(item)}
+                    variant="primary"
+                    size="sm"
+                  />
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {!isSearchingGlobal && filteredContacts.length === 0 && globalResults.length === 0 && (
+            <EmptyState
+              iconName="person-remove-outline"
+              title="No User Found"
+              description={`No ChatFlow user found matching "${inboxFilter}". Double check the spelling or start a new chat.`}
+              actionLabel="Search in New Chat"
+              onActionPress={() => {
+                setModalSearchText(inboxFilter);
+                openNewChatModal();
+              }}
             />
           )}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: tokens.spacing.huge * 2 }}
-        />
+        </ScrollView>
       ) : (
-        <EmptyState
-          iconName="chatbubbles-outline"
-          title={inboxFilter ? 'No Matches Found' : 'No Conversations Yet'}
-          description={
-            inboxFilter
-              ? `No chats found matching "${inboxFilter}". Search an @username to connect.`
-              : 'ChatFlow connects you without phone numbers. Tap the button below to discover users by their @username.'
-          }
-          actionLabel="Start a New Chat"
-          onActionPress={openNewChatModal}
-        />
+        /* Regular Home View: Stories Tray + Conversations List */
+        <>
+          <StoriesTray
+            myStories={myStories}
+            contactStories={contactStories}
+            onOpenMyStatus={() => {
+              if (myStories.length > 0) {
+                setActiveStoryGroup({
+                  userId: user?.id || 'me',
+                  username: user?.username || 'me',
+                  displayName: user?.displayName || 'My Status',
+                  avatarUrl: user?.avatarUrl,
+                  hasUnseen: false,
+                  lastUpdated: myStories[myStories.length - 1].createdAt,
+                  stories: myStories,
+                });
+                setIsStoryViewerOpen(true);
+              } else {
+                setIsStatusCreatorOpen(true);
+              }
+            }}
+            onAddNewStatus={() => setIsStatusCreatorOpen(true)}
+            onOpenContactStory={(group) => {
+              setActiveStoryGroup(group);
+              setIsStoryViewerOpen(true);
+            }}
+          />
+
+          {isLoadingContacts && contacts.length === 0 ? (
+            <View style={styles.loadingCenter}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text variant="caption" colorRole="secondary" style={styles.loadingText}>
+                Loading conversations...
+              </Text>
+            </View>
+          ) : filteredContacts.length > 0 ? (
+            <FlatList
+              data={filteredContacts}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <ChatListItem
+                  id={item.id}
+                  displayName={item.nickname || item.user.displayName}
+                  username={item.user.username}
+                  avatarUri={item.user.avatarUrl}
+                  presence={item.user.presenceStatus}
+                  lastMessage={item.lastMessage || `@${item.user.username} • Tap to message`}
+                  timestamp={formatWhatsAppTime(item.lastMessageTimestamp || item.createdAt)}
+                  unreadCount={item.unreadCount || 0}
+                  onPress={() => handleStartChatWithContact(item)}
+                />
+              )}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: tokens.spacing.huge * 2 }}
+            />
+          ) : (
+            <EmptyState
+              iconName="chatbubbles-outline"
+              title="No Conversations Yet"
+              description="ChatFlow connects you without phone numbers. Tap the button below to discover users by their @username."
+              actionLabel="Start a New Chat"
+              onActionPress={openNewChatModal}
+            />
+          )}
+        </>
       )}
 
       {/* Floating Action Button (FAB) */}
@@ -483,6 +636,12 @@ export default function ChatsScreen() {
               placeholder="e.g. alexrivers"
               value={modalSearchText}
               onChangeText={setModalSearchText}
+              onSubmitEditing={() => {
+                if (searchResults.length > 0) {
+                  void handleAddAndStartChat(searchResults[0]);
+                }
+              }}
+              returnKeyType="search"
               autoFocus={true}
               autoCapitalize="none"
               helperText={
@@ -506,13 +665,18 @@ export default function ChatsScreen() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={{ paddingVertical: tokens.spacing.xs }}
               renderItem={({ item }) => (
-                <View
-                  style={[
+                <Pressable
+                  onPress={() => void handleAddAndStartChat(item)}
+                  style={({ pressed }) => [
                     styles.searchResultItem,
                     {
                       borderBottomColor: theme.divider,
+                      backgroundColor: pressed ? theme.surfaceEmphasized : 'transparent',
+                      cursor: (Platform.OS === 'web' ? 'pointer' : undefined) as any,
                     },
                   ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Chat with ${item.displayName}`}
                 >
                   <Avatar
                     name={item.displayName}
@@ -532,13 +696,12 @@ export default function ChatsScreen() {
                     )}
                   </View>
                   <Button
-                    label={addingUsername === item.username ? 'Adding...' : 'Chat'}
+                    label="Chat"
                     onPress={() => void handleAddAndStartChat(item)}
                     variant="primary"
                     size="sm"
-                    isLoading={addingUsername === item.username}
                   />
-                </View>
+                </Pressable>
               )}
             />
           ) : modalSearchText.trim().length > 0 ? (
@@ -740,5 +903,20 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sectionHeader: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingTop: tokens.spacing.md,
+    paddingBottom: tokens.spacing.xs,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  searchingGlobalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: tokens.spacing.md,
   },
 });

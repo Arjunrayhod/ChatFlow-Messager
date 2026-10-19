@@ -101,11 +101,29 @@ contactsRouter.post('/', requireAuth, async (req: Request, res: Response): Promi
 
   const alreadyContact = await db.hasContact(currentUser.id, targetUser.id);
   if (alreadyContact) {
-    res.status(409).json(
-      createErrorResponse(
-        'CONFLICT',
-        `@${username} is already in your contact list`
-      )
+    const existingContacts = await db.getContacts(currentUser.id);
+    const existing = existingContacts.find((c) => c.contactUserId === targetUser.id);
+    if (existing) {
+      res.status(200).json(createSuccessResponse(existing));
+      return;
+    }
+    res.status(200).json(
+      createSuccessResponse({
+        id: `contact_${currentUser.id}_${targetUser.id}`,
+        userId: currentUser.id,
+        contactUserId: targetUser.id,
+        nickname,
+        user: {
+          id: targetUser.id,
+          username: targetUser.username,
+          displayName: targetUser.displayName,
+          avatarUrl: targetUser.avatarUrl,
+          bio: targetUser.bio,
+          presenceStatus: targetUser.presenceStatus,
+          lastSeen: targetUser.lastSeen,
+        },
+        createdAt: new Date().toISOString(),
+      })
     );
     return;
   }
