@@ -4,7 +4,7 @@ services:
     env: node
     plan: free
     region: oregon
-    buildCommand: pnpm install && pnpm --filter @chatflow/shared build && pnpm --filter @chatflow/server build
+    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @chatflow/shared build && pnpm --filter @chatflow/server build
     startCommand: node apps/server/dist/index.js
     healthCheckPath: /health
     envVars:
