@@ -17,10 +17,13 @@ import {
 
 import { Platform } from 'react-native';
 
+export const DEFAULT_PRODUCTION_API_URL = 'https://chatflow-arjun.duckdns.org';
+
 export function getApiBaseUrl(): string {
   const configuredUrl = process.env.EXPO_PUBLIC_API_URL;
   const browserHost = typeof window !== 'undefined' ? window.location?.hostname : undefined;
-  const browserIsRemote = Boolean(browserHost && browserHost !== 'localhost' && browserHost !== '127.0.0.1');
+  const isLocalHost = Boolean(browserHost && (browserHost === 'localhost' || browserHost === '127.0.0.1'));
+  const browserIsRemote = Boolean(browserHost && !isLocalHost);
   const configIsLocal = Boolean(configuredUrl && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(configuredUrl));
 
   // A production browser must use the explicitly configured API host. Ignore a local .env URL
@@ -29,17 +32,19 @@ export function getApiBaseUrl(): string {
     return configuredUrl.replace(/\/$/, '');
   }
 
-  // 1. If running on web in a browser (localhost on PC or LAN IP on mobile phone)
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
-    const host = window.location.hostname;
-    const protocol = window.location.protocol || 'http:';
-    if (host) {
-      return `${protocol}//${host}:4000`;
-    }
+  // 1. If running on remote web in a browser (like Cloudflare Pages or custom domain)
+  if (Platform.OS === 'web' && browserIsRemote) {
+    return DEFAULT_PRODUCTION_API_URL;
   }
 
-  // 3. Fallback to PC Wi-Fi LAN IP
-  return 'http://10.160.190.85:4000';
+  // 2. If running on web in a browser (localhost on PC)
+  if (Platform.OS === 'web' && isLocalHost) {
+    const protocol = (typeof window !== 'undefined' && window.location?.protocol) || 'http:';
+    return `${protocol}//${browserHost}:4000`;
+  }
+
+  // 3. Fallback to production AWS EC2 endpoint
+  return DEFAULT_PRODUCTION_API_URL;
 }
 
 export const API_BASE_URL = {

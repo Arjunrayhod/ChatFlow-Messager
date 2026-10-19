@@ -167,7 +167,7 @@ export default function RootLayout() {
           await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, rationale);
         } else if (Platform.OS === 'ios') {
           const stream = await webrtcService.getLocalMedia('video');
-          stream?.getTracks().forEach((track) => track.stop());
+          stream?.getTracks().forEach((track: any) => track.stop());
         }
       } catch (error) {
         console.warn('[Permissions] Could not request media permissions:', error);
