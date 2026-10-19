@@ -43,6 +43,44 @@ import { useStatusStore } from '../../src/store/useStatusStore';
 import { getSocket } from '../../src/services/socket';
 import { Contact, UserProfile, UserStoryGroup } from '@chatflow/shared';
 
+function formatWhatsAppTime(timestamp?: string | null): string | null {
+  if (!timestamp) return null;
+  try {
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return null;
+
+    const now = new Date();
+    const isToday =
+      date.getDate() === now.getDate() &&
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear();
+
+    if (isToday) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      date.getDate() === yesterday.getDate() &&
+      date.getMonth() === yesterday.getMonth() &&
+      date.getFullYear() === yesterday.getFullYear();
+
+    if (isYesterday) {
+      return 'Yesterday';
+    }
+
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 7 && diffDays > 0) {
+      return date.toLocaleDateString([], { weekday: 'short' });
+    }
+
+    return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
+  } catch {
+    return null;
+  }
+}
+
 export default function ChatsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -96,7 +134,7 @@ export default function ChatsScreen() {
     }
   }, [token, fetchContacts, fetchFeed]);
 
-  // Real-time Snapchat Screenshot alerts & stories feed update
+  // Real-time Snapchat Screenshot alerts, stories feed, and instant message arrival
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -150,6 +188,9 @@ export default function ChatsScreen() {
   }, [contacts, inboxFilter]);
 
   const handleStartChatWithContact = (contact: Contact) => {
+    // Clear unread count for this conversation
+    useChatStore.getState().markChatAsRead(contact.contactUserId);
+
     // Navigate to chat room (Phase 4 route)
     router.push({
       pathname: '/chat/[id]',
@@ -288,8 +329,9 @@ export default function ChatsScreen() {
               username={item.user.username}
               avatarUri={item.user.avatarUrl}
               presence={item.user.presenceStatus}
-              lastMessage={`@${item.user.username} • Tap to message`}
-              timestamp="Active"
+              lastMessage={item.lastMessage || `@${item.user.username} • Tap to message`}
+              timestamp={formatWhatsAppTime(item.lastMessageTimestamp || item.createdAt)}
+              unreadCount={item.unreadCount || 0}
               onPress={() => handleStartChatWithContact(item)}
             />
           )}

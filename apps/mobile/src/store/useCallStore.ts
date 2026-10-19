@@ -38,6 +38,10 @@ import {
   getIncomingCallOffer,
 } from '../services/api';
 import { useAuthStore } from './useAuthStore';
+import {
+  showIncomingCallNotification,
+  dismissCallNotification,
+} from '../services/notifications';
 
 export interface ActiveCall {
   callId: string;
@@ -152,6 +156,13 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       });
 
       ringtoneService.startIncomingRingtone();
+      void showIncomingCallNotification({
+        callId: payload.callId,
+        callerName: payload.caller?.displayName || payload.caller?.username || 'Someone',
+        callerUsername: payload.caller?.username || '',
+        type: payload.type,
+        avatarUrl: payload.caller?.avatarUrl,
+      });
     });
 
     // B. Call Ringing on Remote Device
@@ -171,6 +182,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     // C. Remote Peer Accepted Call
     socket.on('call_accepted', async (payload) => {
       console.log('[useCallStore] Remote peer accepted call:', payload);
+      dismissCallNotification(payload.callId);
       const { activeCall } = get();
       if (!activeCall || activeCall.callId !== payload.callId) return;
 
@@ -191,6 +203,11 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     socket.on('call_rejected', (payload?: { callId?: string; reason?: string }) => {
       console.log('[useCallStore] call_rejected received:', payload);
       const { activeCall } = get();
+      if (payload?.callId) {
+        dismissCallNotification(payload.callId);
+      } else if (activeCall) {
+        dismissCallNotification(activeCall.callId);
+      }
       if (!activeCall) return;
 
       // Verify that this rejection matches the active call
@@ -245,6 +262,11 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     socket.on('call_ended', (payload?: { callId?: string; reason?: string }) => {
       console.log('[useCallStore] call_ended received:', payload);
       const { activeCall } = get();
+      if (payload?.callId) {
+        dismissCallNotification(payload.callId);
+      } else if (activeCall) {
+        dismissCallNotification(activeCall.callId);
+      }
       if (!activeCall) return;
 
       // Verify that this termination matches the active call
@@ -276,6 +298,10 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
     // G. Call Missed
     socket.on('call_missed', () => {
+      const { activeCall } = get();
+      if (activeCall) {
+        dismissCallNotification(activeCall.callId);
+      }
       ringtoneService.stopAll();
       webrtcService.destroy();
       set({
@@ -300,6 +326,13 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       callDuration: 0,
     });
     ringtoneService.startIncomingRingtone();
+    void showIncomingCallNotification({
+      callId: id,
+      callerName: caller?.displayName || caller?.username || 'Someone',
+      callerUsername: caller?.username || '',
+      type,
+      avatarUrl: caller?.avatarUrl,
+    });
   },
 
   /**
@@ -421,6 +454,8 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     const { activeCall } = get();
     if (!activeCall || activeCall.direction !== 'incoming' || !activeCall.incomingSdp) return;
 
+    dismissCallNotification(activeCall.callId);
+
     const securityError = getWebMediaSecurityError();
     if (securityError) {
       ringtoneService.stopAll();
@@ -514,8 +549,11 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     const { activeCall } = get();
     ringtoneService.stopAll();
 
-    if (activeCall && activeCall.direction === 'incoming') {
-      emitCallReject(activeCall.callId, activeCall.partner.id, reason);
+    if (activeCall) {
+      dismissCallNotification(activeCall.callId);
+      if (activeCall.direction === 'incoming') {
+        emitCallReject(activeCall.callId, activeCall.partner.id, reason);
+      }
     }
 
     webrtcService.destroy();
@@ -541,6 +579,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     ringtoneService.stopAll();
 
     if (activeCall) {
+      dismissCallNotification(activeCall.callId);
       // If already busy, rejected, or ended, dismiss modal immediately without waiting
       if (
         activeCall.status === 'busy' ||

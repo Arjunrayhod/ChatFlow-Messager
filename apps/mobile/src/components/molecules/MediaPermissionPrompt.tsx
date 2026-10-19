@@ -59,12 +59,25 @@ export function MediaPermissionPrompt({ enabled }: { enabled: boolean }) {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      stream.getTracks().forEach((track) => track.stop());
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (mediaErr) {
+        console.warn('[MediaPermissionPrompt] Media stream request optional error:', mediaErr);
+      }
+
+      if ('Notification' in window && Notification.permission === 'default') {
+        try {
+          await Notification.requestPermission();
+        } catch (notifErr) {
+          console.warn('[MediaPermissionPrompt] Notification request failed:', notifErr);
+        }
+      }
+
       dismiss();
     } catch (reason) {
       console.warn('[MediaPermissionPrompt] Permission request failed:', reason);
-      setError('Permission allow nahi hui. Browser site settings mein Camera aur Microphone ko Allow karke phir try karein.');
+      setError('Permission allow nahi hui. Browser site settings mein Camera, Microphone, aur Notifications ko Allow karein.');
     }
   }, [dismiss, isSecureContext]);
 
@@ -77,25 +90,29 @@ export function MediaPermissionPrompt({ enabled }: { enabled: boolean }) {
           <View style={styles.iconMark}>
             <Ionicons name="shield-checkmark" size={28} color={tokens.colors.dark.primary} />
           </View>
-          <Text variant="h2" style={styles.title}>Allow camera and microphone</Text>
+          <Text variant="h2" style={styles.title}>Permissions for ChatFlow</Text>
           <Text variant="body" style={styles.description}>
-            Voice/video calls, camera status, and QR scanning ke liye in permissions ki zaroorat hai.
+            Calls, background alerts, and incoming notifications ke liye in permissions ki zaroorat hai.
           </Text>
 
           <View style={styles.permissionRow}>
+            <Ionicons name="notifications-outline" size={19} color={tokens.colors.dark.primary} />
+            <Text variant="body" style={styles.rowText}>Notifications for incoming calls & messages</Text>
+          </View>
+          <View style={styles.permissionRow}>
             <Ionicons name="mic-outline" size={19} color={tokens.colors.dark.primary} />
-            <Text variant="body" style={styles.rowText}>Microphone for calls</Text>
+            <Text variant="body" style={styles.rowText}>Microphone for voice/video calls</Text>
           </View>
           <View style={styles.permissionRow}>
             <Ionicons name="camera-outline" size={19} color={tokens.colors.dark.primary} />
-            <Text variant="body" style={styles.rowText}>Camera for video calls and QR</Text>
+            <Text variant="body" style={styles.rowText}>Camera for video calls and QR scanner</Text>
           </View>
 
           {error ? <Text variant="caption" style={styles.error}>{error}</Text> : null}
 
           {isSecureContext ? (
             <Pressable style={styles.primaryButton} onPress={() => void requestMedia()} accessibilityRole="button">
-              <Text variant="bodyMedium" style={styles.primaryButtonText}>Allow camera & microphone</Text>
+              <Text variant="bodyMedium" style={styles.primaryButtonText}>Allow permissions</Text>
             </Pressable>
           ) : (
             <Text variant="caption" style={styles.error}>

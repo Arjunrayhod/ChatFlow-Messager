@@ -8,18 +8,22 @@
  */
 
 import { create } from 'zustand';
-import { Contact, UserProfile } from '@chatflow/shared';
+import { Contact, UserProfile, ChatMessage } from '@chatflow/shared';
 import {
   getContacts,
   searchUsers as searchUsersApi,
   addContact as addContactApi,
   removeContact as removeContactApi,
 } from '../services/api';
+import { useAuthStore } from './useAuthStore';
 
 export interface ChatState {
   contacts: Contact[];
   isLoadingContacts: boolean;
   contactsError: string | null;
+
+  activeChatId: string | null;
+  setActiveChatId: (chatId: string | null) => void;
 
   searchQuery: string;
   searchResults: UserProfile[];
@@ -29,6 +33,8 @@ export interface ChatState {
   isNewChatModalOpen: boolean;
 
   fetchContacts: (token: string) => Promise<void>;
+  updateContactOnMessage: (message: ChatMessage, currentUserId: string) => void;
+  markChatAsRead: (contactUserId: string) => void;
   searchUsers: (token: string, query: string) => Promise<void>;
   addContact: (token: string, username: string, nickname?: string) => Promise<{ success: boolean; message?: string }>;
   removeContact: (token: string, contactUserId: string) => Promise<boolean>;
@@ -41,6 +47,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   contacts: [],
   isLoadingContacts: false,
   contactsError: null,
+
+  activeChatId: null,
+  setActiveChatId: (activeChatId) => set({ activeChatId }),
 
   searchQuery: '',
   searchResults: [],
@@ -62,6 +71,74 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } else {
       set({ isLoadingContacts: false, contactsError: result.error.message });
     }
+  },
+
+  /**
+   * Updates contact with newest incoming/outgoing message snippet,
+   * calculates unread count badge, and moves the active conversation to index 0 (TOP).
+   */
+  updateContactOnMessage: (message: ChatMessage, currentUserId: string) => {
+    const { contacts, activeChatId } = get();
+
+    // Determine the peer userId
+    const parts = message.chatId.split('_');
+    const peerUserId = parts.find((p) => p !== currentUserId) || message.senderId;
+
+    let snippet = message.content;
+    if (message.type === 'image') snippet = '📷 Photo';
+    else if (message.type === 'video') snippet = '🎥 Video';
+    else if (message.type === 'audio') snippet = '🎤 Voice message';
+    else if (message.type === 'document') snippet = '📄 Document';
+    else if (message.type === 'location') snippet = '📍 Location';
+
+    const isCurrentActiveChat = activeChatId === message.chatId || activeChatId === peerUserId;
+    const isFromPeer = message.senderId !== currentUserId;
+
+    const existingIndex = contacts.findIndex(
+      (c) => c.contactUserId === peerUserId || c.id === message.chatId || c.id === `conv_${message.chatId}`
+    );
+
+    if (existingIndex !== -1) {
+      const existing = contacts[existingIndex];
+      const unreadCount = isFromPeer && !isCurrentActiveChat
+        ? (existing.unreadCount || 0) + 1
+        : (isCurrentActiveChat ? 0 : (existing.unreadCount || 0));
+
+      const updatedContact: Contact = {
+        ...existing,
+        lastMessage: snippet,
+        lastMessageTimestamp: message.createdAt,
+        unreadCount,
+      };
+
+      // Place this conversation at the VERY TOP of the array (WhatsApp pattern)
+      const remaining = contacts.filter((_, idx) => idx !== existingIndex);
+      set({ contacts: [updatedContact, ...remaining] });
+    } else {
+      // New conversation from user not yet in local state -> fetch fresh contacts
+      const token = useAuthStore.getState().token;
+      if (token) {
+        void get().fetchContacts(token);
+      }
+    }
+  },
+
+  /**
+   * Clears the unread count when a conversation is opened.
+   */
+  markChatAsRead: (contactUserId: string) => {
+    const { contacts } = get();
+    const updated = contacts.map((c) => {
+      if (
+        c.contactUserId === contactUserId ||
+        c.id === contactUserId ||
+        c.id === `conv_${contactUserId}`
+      ) {
+        return { ...c, unreadCount: 0 };
+      }
+      return c;
+    });
+    set({ contacts: updated });
   },
 
   /**

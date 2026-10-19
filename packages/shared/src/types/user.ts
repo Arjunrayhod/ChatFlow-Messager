@@ -55,6 +55,9 @@ export interface Contact {
   nickname: string | null;
   createdAt: string;
   user: UserProfile;
+  lastMessage?: string | null;
+  lastMessageTimestamp?: string | null;
+  unreadCount?: number;
 }
 
 /** Response payload for user synchronization with Firebase auth. */

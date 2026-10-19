@@ -22,7 +22,7 @@ import {
 import { logger } from '../utils/logger';
 import { db } from '../services/db';
 import { verifyAuthToken } from '../middlewares/auth';
-import { sendIncomingCallPush } from '../services/push';
+import { sendIncomingCallPush, sendNewMessagePush } from '../services/push';
 
 interface SocketData {
   userId: string;
@@ -104,12 +104,42 @@ export function initSocketServer(
       }
       await socket.join(chatId);
       logger.info({ userId, chatId }, `User joined room ${chatId}`);
+
+      // Auto-mark peer messages as read when opening room
+      try {
+        const readIds = await db.markMessagesAsRead(chatId, userId);
+        for (const mId of readIds) {
+          io.to(chatId).emit('message_status_update', {
+            messageId: mId,
+            chatId,
+            status: 'read',
+          });
+        }
+      } catch {
+        // ignore
+      }
     });
 
     // 2. Leave Chat Room
     socket.on('leave_room', ({ chatId }) => {
       void socket.leave(chatId);
       logger.info({ userId, chatId }, `User left room ${chatId}`);
+    });
+
+    socket.on('chat_read', async ({ chatId }: { chatId: string }) => {
+      if (!(await db.canAccessChat(chatId, userId))) return;
+      try {
+        const readIds = await db.markMessagesAsRead(chatId, userId);
+        for (const mId of readIds) {
+          io.to(chatId).emit('message_status_update', {
+            messageId: mId,
+            chatId,
+            status: 'read',
+          });
+        }
+      } catch {
+        // ignore
+      }
     });
 
     socket.on('refresh_chat', async ({ chatId }) => {
@@ -152,8 +182,21 @@ export function initSocketServer(
         const participants = chatId.split('_');
         const recipientId = participants.find((id) => id !== effectiveSenderId && id !== userId);
         if (recipientId) {
+          // ALSO emit to personal user rooms so inbox/chats list receives it immediately
+          io.to(`user_${recipientId}`).emit('message_new', {
+            message,
+            clientTempId,
+          });
+          io.to(`user_${effectiveSenderId}`).emit('message_new', {
+            message,
+            clientTempId,
+          });
+
           const recipientUser = (await db.findUserById(recipientId)) || (await db.findUserByFirebaseUid(recipientId));
           if (recipientUser && senderUser) {
+            if (recipientUser.id !== recipientId) {
+              io.to(`user_${recipientUser.id}`).emit('message_new', { message, clientTempId });
+            }
             const hasSender = await db.hasContact(effectiveSenderId, recipientUser.id);
             if (!hasSender) {
               await db.addContact(effectiveSenderId, recipientUser);
@@ -162,6 +205,9 @@ export function initSocketServer(
             if (!hasRecipient) {
               await db.addContact(recipientUser.id, senderUser);
             }
+          }
+          if (senderUser) {
+            void sendNewMessagePush(message, senderUser, recipientId);
           }
         }
 

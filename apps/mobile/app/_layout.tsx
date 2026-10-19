@@ -19,12 +19,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../src/theme/tokens';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useCallStore } from '../src/store/useCallStore';
+import { useChatStore } from '../src/store/useChatStore';
 import { IncomingCallModal } from '../src/components/molecules/IncomingCallModal';
 import { ActiveCallModal } from '../src/components/molecules/ActiveCallModal';
 import { MediaPermissionPrompt } from '../src/components/molecules/MediaPermissionPrompt';
 import { webrtcService } from '../src/services/webrtc';
+import { getSocket, connectSocket } from '../src/services/socket';
 import * as Notifications from 'expo-notifications';
-import { registerForIncomingCallPush } from '../src/services/notifications';
+import {
+  registerForIncomingCallPush,
+  showNewMessageNotification,
+} from '../src/services/notifications';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -148,6 +153,49 @@ export default function RootLayout() {
       try { subscription?.remove(); } catch {}
     };
   }, [token, handleIncomingCallPush]);
+
+  // Global real-time incoming message notification listener
+  useEffect(() => {
+    if (!token) return;
+    const socket = getSocket() || connectSocket(token);
+    if (!socket) return;
+
+    const onGlobalMessage = (payload: { message: any }) => {
+      const msg = payload?.message;
+      if (!msg) return;
+
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (!currentUserId) return;
+
+      // Update in-memory chat list ordering and unread badge count
+      useChatStore.getState().updateContactOnMessage(msg, currentUserId);
+
+      // If message is from another user, notify if app is hidden or not actively inside this chat
+      if (msg.senderId !== currentUserId) {
+        const activeChatId = useChatStore.getState().activeChatId;
+        const isDifferentChat = activeChatId !== msg.chatId;
+        const isPageHidden = Platform.OS === 'web' && typeof document !== 'undefined' && document.hidden;
+
+        if (isDifferentChat || isPageHidden) {
+          const contact = useChatStore.getState().contacts.find((c) => c.contactUserId === msg.senderId);
+          const senderName = contact?.nickname || contact?.user?.displayName || (contact?.user?.username ? `@${contact.user.username}` : 'New message');
+          const senderUsername = contact?.user?.username || '';
+          void showNewMessageNotification({
+            chatId: msg.chatId,
+            senderName,
+            senderUsername,
+            content: msg.content || '',
+            type: msg.type,
+          });
+        }
+      }
+    };
+
+    socket.on('message_new', onGlobalMessage);
+    return () => {
+      socket.off('message_new', onGlobalMessage);
+    };
+  }, [token]);
 
   // Ask native users for the camera and microphone permissions once the app
   // session is ready. Web permission requests are handled by a user-tap prompt.

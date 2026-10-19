@@ -364,7 +364,7 @@ export class DatabaseService {
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          return data.map((row: any) => ({
+          const mapped = data.map((row: any) => ({
             id: String(row.id),
             ownerId: String(row.user_id),
             contactUserId: String(row.contact_user_id),
@@ -380,6 +380,7 @@ export class DatabaseService {
               lastSeen: row.contact_user.last_seen ? String(row.contact_user.last_seen) : null,
             },
           }));
+          return this.enrichAndSortContacts(ownerId, mapped);
         }
       } catch (err) {
         logger.warn({ err }, 'Supabase getContacts exception');
@@ -426,7 +427,67 @@ export class DatabaseService {
       }
     }
 
-    return result;
+    return this.enrichAndSortContacts(ownerId, result);
+  }
+
+  /**
+   * Enriches contacts with latest message preview, timestamp, unread counter,
+   * and sorts descending so active conversations appear at the top (WhatsApp pattern).
+   */
+  private enrichAndSortContacts(ownerId: string, contacts: Contact[]): Contact[] {
+    for (const contact of contacts) {
+      const chatId = [ownerId, contact.contactUserId].sort().join('_');
+      const messages = this.memoryMessages.get(chatId) || [];
+      if (messages.length > 0) {
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg) {
+          let preview = lastMsg.content;
+          if (lastMsg.type === 'image') preview = '📷 Photo';
+          else if (lastMsg.type === 'video') preview = '🎥 Video';
+          else if (lastMsg.type === 'audio') preview = '🎤 Voice message';
+          else if (lastMsg.type === 'document') preview = '📄 Document';
+          else if (lastMsg.type === 'location') preview = '📍 Location';
+
+          contact.lastMessage = preview;
+          contact.lastMessageTimestamp = lastMsg.createdAt;
+          contact.unreadCount = messages.filter(
+            (m) => m.senderId === contact.contactUserId && m.status !== 'read'
+          ).length;
+        }
+      }
+    }
+
+    return contacts.sort((a, b) => {
+      const timeA = new Date(a.lastMessageTimestamp || a.createdAt).getTime();
+      const timeB = new Date(b.lastMessageTimestamp || b.createdAt).getTime();
+      return timeB - timeA;
+    });
+  }
+
+  /**
+   * Marks unread messages in a chat conversation as read by recipient.
+   */
+  async markMessagesAsRead(chatId: string, readerUserId: string): Promise<string[]> {
+    const messages = this.memoryMessages.get(chatId) || [];
+    const readIds: string[] = [];
+    for (const m of messages) {
+      if (m.senderId !== readerUserId && m.status !== 'read') {
+        m.status = 'read';
+        m.updatedAt = new Date().toISOString();
+        readIds.push(m.id);
+      }
+    }
+    if (this.supabase && readIds.length > 0) {
+      try {
+        await this.supabase
+          .from('messages')
+          .update({ status: 'read', updated_at: new Date().toISOString() })
+          .in('id', readIds);
+      } catch (err) {
+        logger.warn({ err, chatId }, 'Supabase markMessagesAsRead failed');
+      }
+    }
+    return readIds;
   }
 
   /**

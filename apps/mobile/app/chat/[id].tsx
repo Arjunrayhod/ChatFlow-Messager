@@ -41,6 +41,7 @@ import { MediaLightboxModal, MediaLightboxData } from '../../src/components/mole
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useMessageStore } from '../../src/store/useMessageStore';
 import { useCallStore } from '../../src/store/useCallStore';
+import { useChatStore } from '../../src/store/useChatStore';
 import * as api from '../../src/services/api';
 import {
   connectSocket,
@@ -394,6 +395,9 @@ export default function ChatRoomScreen() {
     // Connect socket
     const socket = connectSocket(token);
     joinRoom(chatId);
+    useChatStore.getState().setActiveChatId(chatId);
+    useChatStore.getState().markChatAsRead(params.id || chatId);
+    socket.emit('chat_read', { chatId });
 
     // Initial message history load
     void loadHistory(chatId, token);
@@ -402,6 +406,9 @@ export default function ChatRoomScreen() {
     const handleMessageNew = (payload: { message: ChatMessage; clientTempId?: string }) => {
       if (payload.message.chatId === chatId) {
         receiveMessage(payload.message, payload.clientTempId);
+      }
+      if (user?.id) {
+        useChatStore.getState().updateContactOnMessage(payload.message, user.id);
       }
     };
 
@@ -452,13 +459,14 @@ export default function ChatRoomScreen() {
 
     return () => {
       leaveRoom(chatId);
+      useChatStore.getState().setActiveChatId(null);
       socket.off('message_new', handleMessageNew);
       socket.off('user_typing', handleUserTyping);
       socket.off('message_status_update', handleStatusUpdate);
       socket.off('chat_refresh', handleChatRefresh);
       socket.off('screenshot_detected', handleScreenshotDetected);
     };
-  }, [chatId, token, loadHistory, receiveMessage, setUserTyping, updateMessageStatus]);
+  }, [chatId, params.id, token, user?.id, loadHistory, receiveMessage, setUserTyping, updateMessageStatus]);
 
   // Keyboard shortcut screenshot detection for Web in Chat
   useEffect(() => {
