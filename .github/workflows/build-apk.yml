@@ -6,10 +6,11 @@ on:
       backend_url:
         description: 'Production Backend URL'
         required: false
-        default: 'https://chatflow-backend.onrender.com'
+        default: 'https://chatflow-arjun.duckdns.org'
   push:
     branches:
       - main
+      - 'codex/**'
     paths:
       - 'apps/mobile/**'
       - 'packages/shared/**'
@@ -56,7 +57,7 @@ jobs:
         run: |
           TARGET_URL="${BACKEND_URL}"
           if [ -z "$TARGET_URL" ]; then
-            TARGET_URL="https://chatflow-backend.onrender.com"
+            TARGET_URL="https://chatflow-arjun.duckdns.org"
           fi
           if [[ ! "$TARGET_URL" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
             echo "backend_url must be an http(s) origin without a path"
@@ -73,6 +74,11 @@ jobs:
           fi
           if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > apps/mobile/google-services.json
+            WEB_CLIENT_ID="$(python3 -c 'import json; d=json.load(open("apps/mobile/google-services.json")); cs=d.get("client",[{}])[0].get("oauth_client",[]); print(next((c.get("client_id") or c.get("oauth_client_id") for c in cs if c.get("client_type") == 3), next((c.get("client_id") or c.get("oauth_client_id") for c in cs), "")))' 2>/dev/null || echo '')"
+            if [ -n "$WEB_CLIENT_ID" ]; then
+              echo "Discovered Firebase OAuth Client ID: $WEB_CLIENT_ID"
+              echo "EXPO_PUBLIC_FIREBASE_WEB_CLIENT_ID=$WEB_CLIENT_ID" >> apps/mobile/.env
+            fi
           fi
 
       - name: 📥 Install dependencies
@@ -85,33 +91,119 @@ jobs:
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --clean --no-install
 
-      - name: 🔧 Resolve React Native Gradle plugin path
+      - name: 🔤 Bundle Vector Icon Fonts into Android Assets
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          
+          const pkgPath = require.resolve('@expo/vector-icons/package.json', { paths: [path.resolve('apps/mobile')] });
+          const fontsSrc = path.join(path.dirname(pkgPath), 'build/vendor/react-native-vector-icons/Fonts');
+          const targetDir = path.resolve('apps/mobile/android/app/src/main/assets/fonts');
+          
+          fs.mkdirSync(targetDir, { recursive: true });
+          const fontList = ['Ionicons.ttf', 'MaterialIcons.ttf', 'MaterialCommunityIcons.ttf', 'FontAwesome.ttf'];
+          
+          for (const font of fontList) {
+            const src = path.join(fontsSrc, font);
+            const dest = path.join(targetDir, font);
+            if (fs.existsSync(src)) {
+              fs.copyFileSync(src, dest);
+              const stat = fs.statSync(dest);
+              console.log(`Copied genuine font ${font}: ${stat.size} bytes`);
+            } else {
+              console.warn(`Font file not found in package: ${src}`);
+            }
+          }
+          NODE
+          echo "Verified bundled Android fonts:"
+          ls -la apps/mobile/android/app/src/main/assets/fonts
+
+      - name: 🔧 Configure Android Gradle build
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+          import subprocess
 
+          # 1. Resolve React Native Gradle plugin path
+          plugin_package = subprocess.check_output(
+              [
+                  "node",
+                  "--print",
+                  "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })",
+              ],
+              cwd="apps/mobile",
+              text=True,
+          ).strip()
+          plugin_dir = Path(plugin_package).parent.resolve()
+          if not (plugin_dir / "settings-plugin" / "build.gradle.kts").is_file():
+              raise SystemExit(f"Resolved React Native Gradle plugin is incomplete (missing settings-plugin): {plugin_dir}")
+          if not (plugin_dir / "react-native-gradle-plugin" / "build.gradle.kts").is_file():
+              raise SystemExit(f"Resolved React Native Gradle plugin is incomplete (missing react-native-gradle-plugin): {plugin_dir}")
+
+          # 2. Update settings.gradle with valid includeBuild in both pluginManagement and root
           settings = Path("apps/mobile/android/settings.gradle")
           contents = settings.read_text()
-          old = "includeBuild(expoAutolinking.reactNativeGradlePlugin)"
-          new = '''includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().toString())'''
-          if old not in contents:
-              raise SystemExit("Expected Expo React Native Gradle plugin entry was not found in settings.gradle")
-          settings.write_text(contents.replace(old, new))
-          print("Resolved the React Native Gradle plugin directly from the installed React Native package.")
+          contents = re.sub(
+              r"(?m)^[ \t]*includeBuild\s*\([^\r\n]*(?:@react-native/gradle-plugin|expoAutolinking\.reactNativeGradlePlugin|reactNativeGradlePlugin|null)[^\r\n]*\)[ \t]*(?:\r?\n|$)",
+              "",
+              contents,
+          )
+
+          plugin_management = re.search(r"pluginManagement\s*\{", contents)
+          if not plugin_management:
+              raise SystemExit("pluginManagement block was not found in generated settings.gradle")
+
+          include_path = plugin_dir.as_posix().replace("'", "\\'")
+
+          # 1. Include in pluginManagement for settings plugin (com.facebook.react.settings)
+          contents = contents[:plugin_management.end()] + f"\n  includeBuild('{include_path}')\n" + contents[plugin_management.end():]
+
+          # 2. Include in root settings for composite build / buildscript dependencies (com.facebook.react:react-native-gradle-plugin)
+          contents = contents.rstrip() + f"\n\nincludeBuild('{include_path}')\n"
+
+          settings.write_text(contents)
+          print(f"React Native Gradle settings plugin included from: {plugin_dir}")
+          print(f"React Native Gradle project plugin included from: {plugin_dir}")
+
+          # 3. Configure gradle.properties for adequate memory and disable Jetifier
+          props_path = Path("apps/mobile/android/gradle.properties")
+          if props_path.is_file():
+              props = props_path.read_text()
+              props = re.sub(r"(?m)^org\.gradle\.jvmargs=.*$", "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m", props)
+              props = re.sub(r"(?m)^android\.enableJetifier=.*$", "android.enableJetifier=false", props)
+              props_path.write_text(props)
+              print("Configured gradle.properties: 4GB heap and android.enableJetifier=false")
           PY
 
       - name: 🛠️ Grant execute permission for Gradle wrapper
         working-directory: apps/mobile/android
         run: chmod +x gradlew
 
-      - name: 📱 Assemble Android APK (Direct Install)
+      - name: 📱 Assemble Android APK with JavaScript bundle
         working-directory: apps/mobile/android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          NODE_ENV: production
+          GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: 🔐 Show APK signing certificate fingerprint
+        shell: bash
+        run: |
+          apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          test -s "$apk"
+          test -x "$apksigner"
+          "$apksigner" verify --print-certs "$apk" | tee /tmp/chatflow-apk-cert.txt
+          grep -E 'certificate SHA-1 digest:' /tmp/chatflow-apk-cert.txt
 
       - name: 🏷️ Prepare APK artifact
         run: |
           mkdir -p build-output
-          find apps/mobile/android/app/build/outputs/apk -name "*.apk" -exec cp {} build-output/ChatFlow.apk \;
+          release_apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$release_apk"
+          cp "$release_apk" build-output/ChatFlow.apk
           ls -la build-output/
 
       - name: 📤 Upload APK Artifact

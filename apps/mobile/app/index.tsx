@@ -22,7 +22,7 @@ import { BrandFooter } from '../src/components/atoms/BrandFooter';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useHealthStore } from '../src/store/useHealthStore';
 
-const LOGO_URI = '/logo.jpeg';
+const CHATFLOW_LOGO = require('../assets/logo.jpeg');
 
 export default function GatewayScreen() {
   const router = useRouter();
@@ -33,17 +33,23 @@ export default function GatewayScreen() {
   const { checkHealth } = useHealthStore();
 
   useEffect(() => {
-    // Probe backend connectivity in background
-    void checkHealth();
+    // Probe backend connectivity in background safely
+    void checkHealth().catch((err) => {
+      console.warn('[Gateway] Health probe error ignored safely:', err);
+    });
 
     // Smooth splash delay for WhatsApp-style brand reveal
     const timer = setTimeout(() => {
-      if (isAuthenticated && isOnboarded) {
-        router.replace('/(tabs)/chats');
-      } else if (isAuthenticated && !isOnboarded) {
-        router.replace('/(auth)/onboarding');
-      } else {
-        router.replace('/(auth)/sign-in');
+      try {
+        if (isAuthenticated && isOnboarded) {
+          router.replace('/(tabs)/chats');
+        } else if (isAuthenticated && !isOnboarded) {
+          router.replace('/(auth)/onboarding');
+        } else {
+          router.replace('/(auth)/sign-in');
+        }
+      } catch (navErr) {
+        console.warn('[Gateway] Navigation transition error ignored safely:', navErr);
       }
     }, 600);
 
@@ -56,7 +62,7 @@ export default function GatewayScreen() {
       <View style={styles.centerBrand}>
         <View style={styles.logoContainer}>
           <Image
-            source={{ uri: LOGO_URI }}
+            source={CHATFLOW_LOGO}
             style={styles.logoImage}
             resizeMode="cover"
           />

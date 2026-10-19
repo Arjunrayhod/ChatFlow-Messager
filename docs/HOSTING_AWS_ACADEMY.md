@@ -18,7 +18,7 @@ This setup avoids a sleeping Render backend. It is only online while the Academy
 
 - The EC2 instance is Ubuntu 24.04 and Coturn is installed.
 - Keep the Elastic IP currently assigned to EC2. It was `35.175.156.217` during the last setup; re-check it in AWS before using it below.
-- A free DuckDNS hostname, for example `chatflow-galaxy.duckdns.org`, pointing to that Elastic IP. DuckDNS describes its service as free dynamic DNS. [DuckDNS](https://www.duckdns.org/)
+- A free DuckDNS hostname, for example `chatflow-arjun.duckdns.org`, pointing to that Elastic IP. DuckDNS describes its service as free dynamic DNS. [DuckDNS](https://www.duckdns.org/)
 - A GitHub checkout of `Arjunrayhod/ChatFlow-Messager` on the EC2 host.
 - Production Firebase Admin and Supabase values from your own provider dashboards.
 
@@ -26,7 +26,7 @@ Do not commit `.env`, private keys, database passwords, or the TURN shared secre
 
 ## 1. Point a free HTTPS hostname at EC2
 
-1. Sign in to DuckDNS and create a hostname such as `chatflow-galaxy.duckdns.org`.
+1. Sign in to DuckDNS and create a hostname such as `chatflow-arjun.duckdns.org`.
 2. Set its IPv4 address to the EC2 Elastic IP.
 3. In the AWS Security Group, allow these inbound ports:
 
@@ -73,7 +73,7 @@ Use the EC2 Ubuntu terminal. Run commands as the `ubuntu` user where possible; u
    FIREBASE_PRIVATE_KEY="paste-private-key-with-escaped-\n-newlines"
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
-   TURN_HOST=chatflow-galaxy.duckdns.org
+   TURN_HOST=chatflow-arjun.duckdns.org
    TURN_SHARED_SECRET=the-same-secret-stored-on-EC2-for-coturn
    TURN_UDP_PORT=3478
    TURN_TCP_PORT=3478
@@ -128,7 +128,7 @@ Use the EC2 Ubuntu terminal. Run commands as the `ubuntu` user where possible; u
 2. Edit `/etc/caddy/Caddyfile` and replace the hostname:
 
    ```caddyfile
-   chatflow-galaxy.duckdns.org {
+   chatflow-arjun.duckdns.org {
        reverse_proxy 127.0.0.1:4000
    }
    ```
@@ -144,7 +144,7 @@ Use the EC2 Ubuntu terminal. Run commands as the `ubuntu` user where possible; u
 4. Verify in a browser:
 
    ```text
-   https://chatflow-galaxy.duckdns.org/health
+   https://chatflow-arjun.duckdns.org/health
    ```
 
    The response should say `healthy`. Do not use `http://EC2-IP:4000` in the web app.
@@ -162,8 +162,8 @@ Use the EC2 Ubuntu terminal. Run commands as the `ubuntu` user where possible; u
 4. Add these Pages build variables, replacing the hostname with the one from step 1:
 
    ```text
-   EXPO_PUBLIC_API_URL=https://chatflow-galaxy.duckdns.org
-   EXPO_PUBLIC_SOCKET_URL=https://chatflow-galaxy.duckdns.org
+   EXPO_PUBLIC_API_URL=https://chatflow-arjun.duckdns.org
+   EXPO_PUBLIC_SOCKET_URL=https://chatflow-arjun.duckdns.org
    EXPO_PUBLIC_FIREBASE_API_KEY=your-firebase-web-api-key
    EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-firebase-auth-domain
    EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-firebase-project-id
@@ -181,12 +181,12 @@ The existing `.github/workflows/build-apk.yml` workflow builds the Android APK.
 
 1. Push the desired project branch to GitHub.
 2. Open **Actions → Build Android APK → Run workflow** and select that branch.
-3. Set `backend_url` to `https://chatflow-galaxy.duckdns.org` (origin only; no `/health`). Never put TURN or database secrets in the workflow input.
+3. Set `backend_url` to `https://chatflow-arjun.duckdns.org` (origin only; no `/health`). Never put TURN or database secrets in the workflow input.
 4. When the workflow succeeds, download the `ChatFlow-Android-APK` artifact. Install that APK on Android and test sign-in, chat, and calls.
 
 ## 6. Verify and maintain
 
-1. Confirm `https://chatflow-galaxy.duckdns.org/health` returns healthy.
+1. Confirm `https://chatflow-arjun.duckdns.org/health` returns healthy.
 2. Confirm both `chatflow-api` and `coturn` show `active (running)` on EC2.
 3. Confirm the authenticated `/api/calls/ice-servers` response includes `relayConfigured: true`. Do not share the generated TURN credential values.
 4. Test browser-to-browser, browser-to-APK, and APK-to-APK calls in both directions.

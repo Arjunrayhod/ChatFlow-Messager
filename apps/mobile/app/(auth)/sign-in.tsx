@@ -41,7 +41,7 @@ import { BrandFooter } from '../../src/components/atoms/BrandFooter';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { isFirebaseConfigured } from '../../src/services/firebase';
 
-const LOGO_URI = '/logo.jpeg';
+const CHATFLOW_LOGO = require('../../assets/logo.jpeg');
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
@@ -124,7 +124,7 @@ export default function SignInScreen() {
             ]}
           >
             <Image
-              source={{ uri: LOGO_URI }}
+              source={CHATFLOW_LOGO}
               style={styles.heroLogoImage}
               resizeMode="cover"
             />
@@ -309,11 +309,11 @@ export default function SignInScreen() {
                 />
               </View>
 
-              {validationError && (
+              {(validationError || error) && (
                 <View style={styles.validationErrorRow}>
                   <Ionicons name="alert-circle" size={14} color={theme.error} />
                   <Text variant="caption" colorRole="error" style={{ flex: 1 }}>
-                    {validationError}
+                    {validationError || error}
                   </Text>
                 </View>
               )}

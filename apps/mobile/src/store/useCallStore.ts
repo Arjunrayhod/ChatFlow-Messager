@@ -37,6 +37,7 @@ import {
   clearCallHistory,
   getIncomingCallOffer,
 } from '../services/api';
+import { useAuthStore } from './useAuthStore';
 
 export interface ActiveCall {
   callId: string;
@@ -331,7 +332,8 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     let signalingStarted = false;
 
     try {
-      await webrtcService.configureIceServers(callAuthToken);
+      const activeToken = callAuthToken || useAuthStore.getState().token || '';
+      await webrtcService.configureIceServers(activeToken);
       // 1. Get user media stream with audio fallback for video
       let stream = await webrtcService.getLocalMedia(type);
       if (!stream && type === 'video') {
@@ -358,14 +360,14 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
       // 2. Initialize peer connection
       webrtcService.initPeerConnection(
-        (remoteStream) => {
+        (remoteStream: any) => {
           set({ remoteStream });
         },
-        (candidate) => {
+        (candidate: any) => {
           if (signalingStarted) emitCallIceCandidate(callId, partner.id, candidate);
           else pendingCandidates.push(candidate);
         },
-        (connectionState) => {
+        (connectionState: any) => {
           if (connectionState === 'connected') {
             const current = get().activeCall;
             if (!current || current.callId !== callId || current.status === 'connected') return;
@@ -433,7 +435,8 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     let signalingStarted = false;
 
     try {
-      await webrtcService.configureIceServers(callAuthToken);
+      const activeToken = callAuthToken || useAuthStore.getState().token || '';
+      await webrtcService.configureIceServers(activeToken);
       // 1. Get user media stream with audio fallback
       let stream = await webrtcService.getLocalMedia(activeCall.type);
       if (!stream && activeCall.type === 'video') {
@@ -447,14 +450,14 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
       // 2. Initialize peer connection
       webrtcService.initPeerConnection(
-        (remoteStream) => {
+        (remoteStream: any) => {
           set({ remoteStream });
         },
-        (candidate) => {
+        (candidate: any) => {
           if (signalingStarted) emitCallIceCandidate(activeCall.callId, activeCall.partner.id, candidate);
           else pendingCandidates.push(candidate);
         },
-        (connectionState) => {
+        (connectionState: any) => {
           if (connectionState === 'connected') {
             const current = get().activeCall;
             if (!current || current.callId !== activeCall.callId || current.status === 'connected') return;

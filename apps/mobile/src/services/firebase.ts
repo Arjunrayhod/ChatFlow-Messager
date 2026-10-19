@@ -10,7 +10,14 @@
  */
 
 import { initializeApp, getApps } from '@firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup } from '@firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithCredential,
+  signInWithPopup,
+  signOut,
+} from '@firebase/auth';
+import { Platform } from 'react-native';
 
 export interface GoogleAuthUser {
   uid: string;
@@ -46,24 +53,61 @@ export const isFirebaseConfigured = (): boolean => {
 };
 
 /**
- * Triggers official Google Sign-In popup or Web Identity flow.
+ * Uses the browser popup on web and the native Google account picker in Android/iOS builds.
  */
 export async function signInWithGoogleReal(gmailAddress?: string): Promise<{
   user: GoogleAuthUser;
   idToken: string;
 }> {
-  if (typeof window === 'undefined') {
-    throw new Error('Google sign-in is currently available in the browser only.');
+  let user: GoogleAuthUser;
+  let idToken: string;
+
+  if (Platform.OS === 'web') {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account',
+      ...(gmailAddress ? { login_hint: gmailAddress.trim() } : {}),
+    });
+    const result = await signInWithPopup(getConfiguredAuth(), provider);
+    user = {
+      uid: result.user.uid,
+      email: result.user.email,
+      displayName: result.user.displayName,
+      photoURL: result.user.photoURL,
+    };
+    idToken = await result.user.getIdToken();
+  } else {
+    const webClientId = process.env.EXPO_PUBLIC_FIREBASE_WEB_CLIENT_ID || '';
+    if (!webClientId.endsWith('.apps.googleusercontent.com')) {
+      throw new Error('Google Sign-In configuration is missing. Rebuild the APK after updating its Firebase config.');
+    }
+
+    // Load only on native so the web bundle never initializes the native module.
+    const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+    GoogleSignin.configure({ webClientId });
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    const response: any = await GoogleSignin.signIn();
+    if (response?.type === 'cancelled') {
+      throw new Error('Google sign-in was cancelled. Please try again.');
+    }
+    const account = response?.data ?? response;
+    const googleIdToken = account?.idToken;
+    if (!googleIdToken || !account?.user?.id) {
+      throw new Error('Google did not return an ID token. Check the Firebase Android SHA-1 and try again.');
+    }
+
+    const credential = GoogleAuthProvider.credential(googleIdToken);
+    const result = await signInWithCredential(getConfiguredAuth(), credential);
+    user = {
+      uid: result.user.uid,
+      email: result.user.email || account.user.email || null,
+      displayName: result.user.displayName || account.user.name || null,
+      photoURL: result.user.photoURL || account.user.photo || null,
+    };
+    idToken = await result.user.getIdToken();
   }
 
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({
-    prompt: 'select_account',
-    ...(gmailAddress ? { login_hint: gmailAddress.trim() } : {}),
-  });
-
-  const result = await signInWithPopup(getConfiguredAuth(), provider);
-  const email = result.user.email?.trim().toLowerCase() || null;
+  const email = user.email?.trim().toLowerCase() || null;
   if (!email || (!email.endsWith('@gmail.com') && !email.endsWith('@googlemail.com'))) {
     throw new Error('Please use a personal Gmail account to continue.');
   }
@@ -73,12 +117,12 @@ export async function signInWithGoogleReal(gmailAddress?: string): Promise<{
 
   return {
     user: {
-      uid: result.user.uid,
+      uid: user.uid,
       email,
-      displayName: result.user.displayName,
-      photoURL: result.user.photoURL,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
     },
-    idToken: await result.user.getIdToken(),
+    idToken,
   };
 }
 
@@ -86,6 +130,16 @@ export async function signInWithGoogleReal(gmailAddress?: string): Promise<{
  * Signs out from client session.
  */
 export async function signOutFromFirebase(): Promise<void> {
-  // Client session cleanup
+  if (Platform.OS !== 'web') {
+    try {
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+      await GoogleSignin.signOut();
+    } catch {
+      // Continue clearing the Firebase session even if Google sign-out is unavailable.
+    }
+  }
+
+  const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
+  if (apiKey) await signOut(getConfiguredAuth());
 }
 

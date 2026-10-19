@@ -8,7 +8,6 @@
 
 import React from 'react';
 import { View, StyleSheet, Pressable, Linking, useColorScheme } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../theme/tokens';
 import { Text } from './Text';
 
@@ -45,12 +44,9 @@ export const BrandFooter: React.FC<BrandFooterProps> = ({
         accessibilityRole="link"
         accessibilityLabel="Arjun Rathod LinkedIn Profile"
       >
-        <Ionicons
-          name="logo-linkedin"
-          size={16}
-          color="#0A66C2"
-          style={styles.linkedinIcon}
-        />
+        <View style={styles.linkedinBadge}>
+          <Text style={styles.linkedinText}>in</Text>
+        </View>
         <Text
           variant="button"
           align="center"
@@ -89,8 +85,20 @@ const styles = StyleSheet.create({
     paddingVertical: tokens.spacing.xxs,
     paddingHorizontal: tokens.spacing.sm,
   },
-  linkedinIcon: {
+  linkedinBadge: {
+    backgroundColor: '#0A66C2',
+    width: 17,
+    height: 17,
+    borderRadius: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 6,
+  },
+  linkedinText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    lineHeight: 13,
   },
   authorName: {
     fontSize: 13,

@@ -15,13 +15,22 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, 'node_modules'),
 ];
 
-const standaloneAssetRegistry = path.resolve(
-  monorepoRoot,
-  'node_modules/.pnpm/@react-native+assets-registry@0.74.87/node_modules/@react-native/assets-registry/registry.js'
-);
+const fs = require('fs');
+
+let standaloneAssetRegistry;
+try {
+  standaloneAssetRegistry = require.resolve('@react-native/assets-registry/registry.js', {
+    paths: [projectRoot, monorepoRoot],
+  });
+} catch {
+  standaloneAssetRegistry = path.resolve(
+    monorepoRoot,
+    'node_modules/.pnpm/@react-native+assets-registry@0.74.87/node_modules/@react-native/assets-registry/registry.js'
+  );
+}
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName.startsWith('@react-native/assets-registry')) {
+  if (moduleName.startsWith('@react-native/assets-registry') && standaloneAssetRegistry && fs.existsSync(standaloneAssetRegistry)) {
     return {
       filePath: standaloneAssetRegistry,
       type: 'sourceFile',

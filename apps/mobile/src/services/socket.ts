@@ -17,10 +17,13 @@ import {
 } from '@chatflow/shared';
 import { Platform } from 'react-native';
 
+export const DEFAULT_PRODUCTION_SOCKET_URL = 'https://chatflow-arjun.duckdns.org';
+
 export function getSocketUrl(): string {
   const configuredUrls = [process.env.EXPO_PUBLIC_SOCKET_URL, process.env.EXPO_PUBLIC_API_URL].filter(Boolean) as string[];
   const browserHost = typeof window !== 'undefined' ? window.location?.hostname : undefined;
-  const browserIsRemote = Boolean(browserHost && browserHost !== 'localhost' && browserHost !== '127.0.0.1');
+  const isLocalHost = Boolean(browserHost && (browserHost === 'localhost' || browserHost === '127.0.0.1'));
+  const browserIsRemote = Boolean(browserHost && !isLocalHost);
   const configuredUrl = configuredUrls.find((url) =>
     !(Platform.OS === 'web' && browserIsRemote && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url))
   );
@@ -28,13 +31,17 @@ export function getSocketUrl(): string {
     return configuredUrl.replace(/\/$/, '');
   }
 
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
-    const host = window.location.hostname;
-    if (host) {
-      return `${window.location.protocol}//${host}:4000`;
-    }
+  // 1. If running on remote web in a browser (Cloudflare Pages)
+  if (Platform.OS === 'web' && browserIsRemote) {
+    return DEFAULT_PRODUCTION_SOCKET_URL;
   }
-  return 'http://10.160.190.85:4000';
+
+  // 2. If running on local web
+  if (Platform.OS === 'web' && isLocalHost) {
+    return `${window.location.protocol}//${browserHost}:4000`;
+  }
+
+  return DEFAULT_PRODUCTION_SOCKET_URL;
 }
 
 const SOCKET_SERVER_URL = getSocketUrl();

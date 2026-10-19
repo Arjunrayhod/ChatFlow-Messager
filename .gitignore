@@ -8,6 +8,8 @@ build/
 .expo/
 .next/
 out/
+apps/mobile/android/
+apps/mobile/ios/
 
 # Environment variables
 .env

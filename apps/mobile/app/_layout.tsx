@@ -8,11 +8,14 @@
  * 3. Stack Navigation: Expo Router ka stack navigator yahan configure hota hai.
  */
 
+import '../src/utils/startupPatch';
 import React, { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme, Platform, PermissionsAndroid } from 'react-native';
+import { useColorScheme, Platform, PermissionsAndroid, View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Font from 'expo-font';
+import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../src/theme/tokens';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { useCallStore } from '../src/store/useCallStore';
@@ -22,6 +25,72 @@ import { MediaPermissionPrompt } from '../src/components/molecules/MediaPermissi
 import { webrtcService } from '../src/services/webrtc';
 import * as Notifications from 'expo-notifications';
 import { registerForIncomingCallPush } from '../src/services/notifications';
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class AppErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[AppErrorBoundary] Caught render error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaProvider>
+          <View style={{ flex: 1, backgroundColor: '#121b22', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+            <Text style={{ color: '#00a884', fontSize: 24, fontWeight: '700', marginBottom: 12 }}>
+              ChatFlow
+            </Text>
+            <Text style={{ color: '#e9edef', fontSize: 16, textAlign: 'center', marginBottom: 8 }}>
+              Something went wrong while launching the screen.
+            </Text>
+            <Text style={{ color: '#8696a0', fontSize: 13, textAlign: 'center', marginBottom: 12 }}>
+              {this.state.error?.message || 'Please reopen the app.'}
+            </Text>
+            {this.state.error?.stack ? (
+              <ScrollView style={{ maxHeight: 150, width: '100%', backgroundColor: '#1f2c34', padding: 10, borderRadius: 8, marginBottom: 16 }}>
+                <Text style={{ color: '#ff6b6b', fontSize: 10, fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier' }}>
+                  {this.state.error.stack.split('\n').slice(0, 8).join('\n')}
+                </Text>
+              </ScrollView>
+            ) : null}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+              <Pressable
+                onPress={() => this.setState({ hasError: false, error: null })}
+                style={{ backgroundColor: '#00a884', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24 }}
+              >
+                <Text style={{ color: '#121b22', fontWeight: '700' }}>Retry</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  this.setState({ hasError: false, error: null });
+                  try { router.replace('/(auth)/sign-in'); } catch {}
+                }}
+                style={{ backgroundColor: '#1f2c34', borderWidth: 1, borderColor: '#00a884', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24 }}
+              >
+                <Text style={{ color: '#00a884', fontWeight: '700' }}>Open Sign In</Text>
+              </Pressable>
+            </View>
+          </View>
+        </SafeAreaProvider>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /**
  * Root application navigation stack layout.
@@ -34,6 +103,20 @@ export default function RootLayout() {
   const token = useAuthStore((state) => state.token);
   const initCallListeners = useCallStore((state) => state.initCallListeners);
   const handleIncomingCallPush = useCallStore((state) => state.handleIncomingCallPush);
+
+  // Preload vector icons in background safely without blocking UI
+  useEffect(() => {
+    const loadIcons = async () => {
+      try {
+        await Font.loadAsync({
+          ...Ionicons.font,
+        });
+      } catch (err) {
+        console.warn('[Fonts] Background font preload suppressed:', err);
+      }
+    };
+    void loadIcons();
+  }, []);
 
   // Initialize WebRTC calling socket listeners
   useEffect(() => {
@@ -54,9 +137,16 @@ export default function RootLayout() {
         void handleIncomingCallPush(token, data.callId);
       }
     };
-    const subscription = Notifications.addNotificationResponseReceivedListener(openIncomingCall);
-    void Notifications.getLastNotificationResponseAsync().then(openIncomingCall);
-    return () => subscription.remove();
+    let subscription: { remove: () => void } | null = null;
+    try {
+      subscription = Notifications.addNotificationResponseReceivedListener(openIncomingCall);
+      void Notifications.getLastNotificationResponseAsync().then(openIncomingCall).catch(() => {});
+    } catch (err) {
+      console.warn('[Push] Notification listener setup failed safely:', err);
+    }
+    return () => {
+      try { subscription?.remove(); } catch {}
+    };
   }, [token, handleIncomingCallPush]);
 
   // Ask native users for the camera and microphone permissions once the app
@@ -77,7 +167,7 @@ export default function RootLayout() {
           await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, rationale);
         } else if (Platform.OS === 'ios') {
           const stream = await webrtcService.getLocalMedia('video');
-          stream?.getTracks().forEach((track) => track.stop());
+          stream?.getTracks().forEach((track: any) => track.stop());
         }
       } catch (error) {
         console.warn('[Permissions] Could not request media permissions:', error);
@@ -184,51 +274,53 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-      <Stack
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: theme.surface,
-          },
-          headerTintColor: theme.textPrimary,
-          headerTitleStyle: {
-            ...tokens.typography.h2,
-          },
-          contentStyle: {
-            backgroundColor: theme.background,
-          },
-        }}
-      >
-        <Stack.Screen
-          name="index"
-          options={{
-            title: 'ChatFlow Gateway',
-            headerShown: false,
+    <AppErrorBoundary>
+      <SafeAreaProvider>
+        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+        <Stack
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: theme.surface,
+            },
+            headerTintColor: theme.textPrimary,
+            headerTitleStyle: {
+              ...tokens.typography.h2,
+            },
+            contentStyle: {
+              backgroundColor: theme.background,
+            },
           }}
-        />
-        <Stack.Screen
-          name="(auth)"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="(tabs)"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="chat/[id]"
-          options={{
-            headerShown: true,
-          }}
-        />
-      </Stack>
-      <IncomingCallModal />
-      <ActiveCallModal />
-      <MediaPermissionPrompt enabled={Boolean(token)} />
-    </SafeAreaProvider>
+        >
+          <Stack.Screen
+            name="index"
+            options={{
+              title: 'ChatFlow Gateway',
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="(auth)"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="(tabs)"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="chat/[id]"
+            options={{
+              headerShown: true,
+            }}
+          />
+        </Stack>
+        <IncomingCallModal />
+        <ActiveCallModal />
+        <MediaPermissionPrompt enabled={Boolean(token)} />
+      </SafeAreaProvider>
+    </AppErrorBoundary>
   );
 }

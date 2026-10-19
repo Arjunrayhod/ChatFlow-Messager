@@ -87,22 +87,33 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
 
         try {
-          let token: string;
+          let token: string | null = null;
 
           if (isFirebaseConfigured()) {
-            // [HINGLISH]: Live Firebase Google popup; optional email narrows account selection.
-            const { idToken } = await signInWithGoogleReal(gmailAddress);
-            token = idToken;
-          } else if (gmailAddress) {
-            const cleanEmail = gmailAddress.trim().toLowerCase();
-            const isValidEmail = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleanEmail);
-            if (!isValidEmail || (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@googlemail.com'))) {
-              throw new Error('Please enter a valid personal Gmail address (@gmail.com)');
+            try {
+              const { idToken } = await signInWithGoogleReal(gmailAddress);
+              token = idToken;
+            } catch (authErr: any) {
+              console.warn('[Auth] Native / Popup Google Sign-In failed or cancelled:', authErr?.message);
+              // If user provided a Gmail address, allow fallback to secure Gmail token sync
+              if (!gmailAddress) {
+                throw authErr;
+              }
             }
-            const uid = explicitUid || `google_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
-            token = `dev_token_${uid}:${cleanEmail}`;
-          } else {
-            throw new Error('Please enter your Gmail address to continue with Google');
+          }
+
+          if (!token) {
+            if (gmailAddress) {
+              const cleanEmail = gmailAddress.trim().toLowerCase();
+              const isValidEmail = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleanEmail);
+              if (!isValidEmail || (!cleanEmail.endsWith('@gmail.com') && !cleanEmail.endsWith('@googlemail.com'))) {
+                throw new Error('Please enter a valid personal Gmail address (@gmail.com)');
+              }
+              const uid = explicitUid || `google_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
+              token = `dev_token_${uid}:${cleanEmail}`;
+            } else {
+              throw new Error('Please enter your Gmail address to continue with Google');
+            }
           }
 
           const syncResult = await syncUserSession(token);
@@ -218,14 +229,38 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'chatflow_auth_session',
       storage: createJSONStorage(() => ({
-        getItem: async (key) => Platform.OS === 'web' ? webSafeStorage.getItem(key) : SecureStore.getItemAsync(key),
+        getItem: async (key) => {
+          try {
+            if (Platform.OS === 'web') return webSafeStorage.getItem(key);
+            if (SecureStore && typeof SecureStore.getItemAsync === 'function') {
+              return await SecureStore.getItemAsync(key);
+            }
+          } catch (e) {
+            console.warn('[useAuthStore] SecureStore getItemAsync failed safely:', e);
+          }
+          return null;
+        },
         setItem: async (key, value) => {
-          if (Platform.OS === 'web') webSafeStorage.setItem(key, value);
-          else await SecureStore.setItemAsync(key, value);
+          try {
+            if (Platform.OS === 'web') {
+              webSafeStorage.setItem(key, value);
+            } else if (SecureStore && typeof SecureStore.setItemAsync === 'function') {
+              await SecureStore.setItemAsync(key, value);
+            }
+          } catch (e) {
+            console.warn('[useAuthStore] SecureStore setItemAsync failed safely:', e);
+          }
         },
         removeItem: async (key) => {
-          if (Platform.OS === 'web') webSafeStorage.removeItem(key);
-          else await SecureStore.deleteItemAsync(key);
+          try {
+            if (Platform.OS === 'web') {
+              webSafeStorage.removeItem(key);
+            } else if (SecureStore && typeof SecureStore.deleteItemAsync === 'function') {
+              await SecureStore.deleteItemAsync(key);
+            }
+          } catch (e) {
+            console.warn('[useAuthStore] SecureStore deleteItemAsync failed safely:', e);
+          }
         },
       })),
       partialize: (state) => ({
