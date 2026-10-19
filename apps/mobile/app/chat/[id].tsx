@@ -29,6 +29,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ScreenCapture from 'expo-screen-capture';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '../../src/theme/tokens';
 import { Text } from '../../src/components/atoms/Text';
@@ -457,9 +458,43 @@ export default function ChatRoomScreen() {
     socket.on('chat_refresh', handleChatRefresh);
     socket.on('screenshot_detected', handleScreenshotDetected);
 
+    // Enforce screenshot prevention on native devices (Android FLAG_SECURE / iOS screen recording prevention)
+    if (Platform.OS !== 'web') {
+      void ScreenCapture.preventScreenCaptureAsync().catch(() => {});
+    }
+
+    // On Web: Prevent PrintScreen / Ctrl+P / Cmd+Shift+4 / Ctrl+S
+    const handleWebKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === 'PrintScreen' ||
+        ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P' || e.key === 's' || e.key === 'S'))
+      ) {
+        e.preventDefault();
+        try {
+          if (navigator.clipboard?.writeText) {
+            void navigator.clipboard.writeText('');
+          }
+        } catch {}
+        setChatScreenshotAlert('🔒 Screenshots and prints are strictly blocked in ChatFlow private chats.');
+        setTimeout(() => setChatScreenshotAlert(null), 5000);
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('keyup', handleWebKeyDown);
+      window.addEventListener('keydown', handleWebKeyDown);
+    }
+
     return () => {
       leaveRoom(chatId);
       useChatStore.getState().setActiveChatId(null);
+      if (Platform.OS !== 'web') {
+        void ScreenCapture.allowScreenCaptureAsync().catch(() => {});
+      }
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.removeEventListener('keyup', handleWebKeyDown);
+        window.removeEventListener('keydown', handleWebKeyDown);
+      }
       socket.off('message_new', handleMessageNew);
       socket.off('user_typing', handleUserTyping);
       socket.off('message_status_update', handleStatusUpdate);

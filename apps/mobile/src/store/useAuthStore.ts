@@ -8,12 +8,13 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { unregisterIncomingCallPush } from '../services/notifications';
-import { User, CreateUserDto, CheckUsernameResponse } from '@chatflow/shared';
+import { User, CreateUserDto, UpdateUserDto, CheckUsernameResponse } from '@chatflow/shared';
 import {
   checkUsernameAvailability,
   syncUserSession,
   onboardUserProfile,
   getCurrentUserProfile,
+  updateUserProfile,
 } from '../services/api';
 import { disconnectSocket } from '../services/socket';
 import {
@@ -33,6 +34,7 @@ export interface AuthState {
   signInWithGoogle: (gmailAddress?: string, explicitUid?: string) => Promise<boolean>;
   checkUsername: (username: string) => Promise<CheckUsernameResponse>;
   onboardUser: (dto: CreateUserDto) => Promise<boolean>;
+  updateProfile: (dto: UpdateUserDto) => Promise<{ success: boolean; error?: string }>;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -187,6 +189,35 @@ export const useAuthStore = create<AuthState>()(
         error: result.error.message,
       });
       return false;
+    }
+  },
+
+  /**
+   * Updates user profile attributes (username, displayName, bio, avatarUrl).
+   */
+  updateProfile: async (dto: UpdateUserDto): Promise<{ success: boolean; error?: string }> => {
+    const { token, user } = get();
+    if (!token || !user) {
+      return { success: false, error: 'Authentication session expired' };
+    }
+
+    set({ isLoading: true, error: null });
+    const result = await updateUserProfile(token, dto);
+
+    if (result.ok) {
+      set({
+        user: result.data,
+        isLoading: false,
+        error: null,
+      });
+      return { success: true };
+    } else {
+      const errorMsg = result.error.message || 'Failed to update profile';
+      set({
+        isLoading: false,
+        error: errorMsg,
+      });
+      return { success: false, error: errorMsg };
     }
   },
 

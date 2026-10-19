@@ -171,6 +171,7 @@ import {
   Contact,
   ChatMessage,
   CreateUserDto,
+  UpdateUserDto,
   SyncUserResponse,
   CheckUsernameResponse,
   RemoveContactResponse,
@@ -257,6 +258,31 @@ export async function getCurrentUserProfile(
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
       },
+    });
+    const data = await response.json();
+    return data;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    return createErrorResponse('INTERNAL_ERROR', message);
+  }
+}
+
+/**
+ * Updates editable profile attributes (@username, displayName, bio, avatarUrl).
+ */
+export async function updateUserProfile(
+  token: string,
+  dto: UpdateUserDto
+): Promise<ApiResponse<User>> {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/users/me`, {
+      method: 'PATCH',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(dto),
     });
     const data = await response.json();
     return data;

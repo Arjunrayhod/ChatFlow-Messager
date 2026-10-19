@@ -42,6 +42,7 @@ export interface CreateUserDto {
 
 /** Payload for updating user profile. */
 export interface UpdateUserDto {
+  username?: string;
   displayName?: string;
   avatarUrl?: string;
   bio?: string;

@@ -51,6 +51,14 @@ const onboardSchema = z.object({
 });
 
 const updateProfileSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .transform((val) => val.replace(/^@/, ''))
+    .refine((val) => /^[a-zA-Z0-9_]{3,20}$/.test(val), {
+      message: 'Username must be 3-20 characters and contain only letters, numbers, and underscores',
+    })
+    .optional(),
   displayName: z.string().trim().min(1).max(50).optional(),
   bio: z.string().trim().max(140).optional(),
   avatarUrl: z.string().trim().optional(),
@@ -261,13 +269,32 @@ usersRouter.patch('/me', requireAuth, async (req: Request, res: Response): Promi
     res.status(400).json(
       createErrorResponse(
         'VALIDATION_FAILED',
-        'Invalid profile update data',
+        parseResult.error.issues[0]?.message || 'Invalid profile update data',
         parseResult.error.flatten()
       )
     );
     return;
   }
 
-  const updated = await db.updateUser(user.id, parseResult.data);
+  const { username, ...otherUpdates } = parseResult.data;
+
+  if (username && username.toLowerCase() !== user.username.toLowerCase()) {
+    const isAvailable = await db.isUsernameAvailable(username);
+    if (!isAvailable) {
+      res.status(409).json(
+        createErrorResponse(
+          'CONFLICT',
+          `Username @${username} is already taken. Please choose another.`
+        )
+      );
+      return;
+    }
+  }
+
+  const updated = await db.updateUser(user.id, {
+    ...otherUpdates,
+    ...(username ? { username } : {}),
+  });
+
   res.status(200).json(createSuccessResponse(updated));
 });

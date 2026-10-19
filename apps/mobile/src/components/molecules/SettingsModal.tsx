@@ -10,7 +10,7 @@
  * 3. Log Out Button: WhatsApp-style confirmation popup ke sath cleanly logout karta hai.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -20,7 +20,12 @@ import {
   useColorScheme,
   Alert,
   Linking,
+  ActivityIndicator,
+  TextInput,
+  Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadMedia, checkUsernameAvailability } from '../../services/api';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,12 +52,163 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, updateProfile } = useAuthStore();
   const { latencyMs, isConnected } = useHealthStore();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isQROpen, setIsQROpen] = useState(false);
+
+  // Profile & DP Edit State
+  const [isUploadingDP, setIsUploadingDP] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editUsername, setEditUsername] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState<{
+    checking: boolean;
+    available: boolean;
+    message: string;
+  }>({ checking: false, available: true, message: '' });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const checkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openEditModal = () => {
+    setEditDisplayName(user?.displayName || '');
+    setEditUsername(user?.username || '');
+    setEditBio(user?.bio || '');
+    setUsernameStatus({ checking: false, available: true, message: 'Current username' });
+    setIsEditingProfile(true);
+  };
+
+  const handleUsernameChange = (text: string) => {
+    const clean = text.replace(/^@/, '').toLowerCase().trim();
+    setEditUsername(clean);
+
+    if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
+
+    if (!clean || clean.length < 3) {
+      setUsernameStatus({ checking: false, available: false, message: 'Username must be at least 3 characters' });
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(clean)) {
+      setUsernameStatus({ checking: false, available: false, message: 'Only letters, numbers, and _ (3-20 chars)' });
+      return;
+    }
+
+    if (clean === user?.username?.toLowerCase()) {
+      setUsernameStatus({ checking: false, available: true, message: 'Current username' });
+      return;
+    }
+
+    setUsernameStatus({ checking: true, available: false, message: 'Checking availability...' });
+
+    checkTimerRef.current = setTimeout(async () => {
+      const res = await checkUsernameAvailability(clean);
+      if (res.ok && res.data.available) {
+        setUsernameStatus({ checking: false, available: true, message: `@${clean} is available! ✨` });
+      } else {
+        const errorReason = res.ok ? res.data.reason : res.error.message;
+        setUsernameStatus({ checking: false, available: false, message: errorReason || `@${clean} is already taken` });
+      }
+    }, 400);
+  };
+
+  const handlePickAvatar = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Needed', 'Gallery se profile picture select karne ke liye permission allow karein.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const asset = result.assets[0];
+      setIsUploadingDP(true);
+
+      let base64Data = asset.base64;
+      if (!base64Data && asset.uri) {
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+        base64Data = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const res = reader.result as string;
+            resolve(res.replace(/^data:[^;]+;base64,/, ''));
+          };
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      if (!base64Data) {
+        throw new Error('Image data read nahi ho paya');
+      }
+
+      const uploadResult = await uploadMedia({
+        fileName: asset.fileName || 'profile_avatar.jpg',
+        mimeType: asset.mimeType || 'image/jpeg',
+        data: base64Data,
+        isHD: true,
+      });
+
+      if (!uploadResult.ok) {
+        throw new Error(uploadResult.error.message || 'Image upload failed');
+      }
+
+      const updateResult = await updateProfile({ avatarUrl: uploadResult.data.url });
+      if (updateResult.success) {
+        Alert.alert('DP Updated', 'Profile photo successfully change ho gayi hai! 📸');
+      } else {
+        throw new Error(updateResult.error || 'Failed to update profile');
+      }
+    } catch (err: any) {
+      console.warn('[SettingsModal] handlePickAvatar error:', err);
+      Alert.alert('DP Error', err?.message || 'Profile photo update nahi ho payi.');
+    } finally {
+      setIsUploadingDP(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editDisplayName.trim()) {
+      Alert.alert('Required', 'Display name cannot be empty.');
+      return;
+    }
+    if (!usernameStatus.available) {
+      Alert.alert('Invalid Username', usernameStatus.message || 'Please choose an available username.');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const result = await updateProfile({
+        displayName: editDisplayName.trim(),
+        username: editUsername,
+        bio: editBio.trim(),
+      });
+
+      if (result.success) {
+        setIsEditingProfile(false);
+        Alert.alert('Success', 'Profile aur username successfully save ho gaya!');
+      } else {
+        Alert.alert('Save Failed', result.error || 'Profile update failed.');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not save profile.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const handlePerformLogout = async () => {
     setIsLoggingOut(true);
@@ -114,23 +270,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               },
             ]}
           >
-            <Avatar
-              name={user?.displayName || 'User'}
-              uri={user?.avatarUrl}
-              size="lg"
-              presence="online"
-            />
-            <View style={styles.profileTextCol}>
-              <Text variant="h2" numberOfLines={1}>
-                {user?.displayName || 'ChatFlow User'}
-              </Text>
+            <View style={styles.avatarWrapper}>
+              <Avatar
+                name={user?.displayName || 'User'}
+                uri={user?.avatarUrl}
+                size="lg"
+                presence="online"
+                onPress={handlePickAvatar}
+              />
+              <Pressable
+                onPress={handlePickAvatar}
+                disabled={isUploadingDP}
+                style={[
+                  styles.cameraBadge,
+                  { backgroundColor: theme.primary, borderColor: theme.surface },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Change profile picture"
+              >
+                {isUploadingDP ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="camera" size={14} color="#FFFFFF" />
+                )}
+              </Pressable>
+            </View>
+
+            <Pressable
+              onPress={openEditModal}
+              style={styles.profileTextCol}
+              accessibilityRole="button"
+              accessibilityLabel="Edit profile and username"
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text variant="h2" numberOfLines={1}>
+                  {user?.displayName || 'ChatFlow User'}
+                </Text>
+                <Ionicons name="pencil" size={14} color={theme.primary} />
+              </View>
               <Text variant="bodyMedium" colorRole="primary" style={styles.usernameText}>
                 @{user?.username || 'username'}
               </Text>
               <Text variant="caption" colorRole="secondary" numberOfLines={1}>
                 {user?.bio || 'Hey there! I am using ChatFlow.'}
               </Text>
-            </View>
+            </Pressable>
+
             <Pressable
               onPress={() => setIsQROpen(true)}
               style={({ pressed }) => [
@@ -434,6 +619,206 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </View>
         )}
 
+        {/* WhatsApp-Style Edit Profile Modal */}
+        {isEditingProfile && (
+          <Modal
+            visible={isEditingProfile}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setIsEditingProfile(false)}
+          >
+            <View style={[styles.modalRoot, { backgroundColor: theme.background }]}>
+              {/* Header */}
+              <View
+                style={[
+                  styles.headerBar,
+                  {
+                    backgroundColor: theme.surface,
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.divider,
+                    paddingTop: Math.max(insets.top, tokens.spacing.sm),
+                  },
+                ]}
+              >
+                <Pressable
+                  onPress={() => setIsEditingProfile(false)}
+                  style={styles.backButton}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="close" size={24} color={theme.textPrimary} />
+                </Pressable>
+                <Text variant="h2" style={[styles.headerTitle, { color: theme.textPrimary }]}>
+                  Edit Profile
+                </Text>
+                <Pressable
+                  onPress={() => void handleSaveProfile()}
+                  disabled={isSavingProfile || !usernameStatus.available}
+                  style={[
+                    styles.saveButton,
+                    {
+                      backgroundColor: usernameStatus.available ? theme.primary : theme.textDisabled,
+                      opacity: isSavingProfile ? 0.6 : 1,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  {isSavingProfile ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text variant="bodyMedium" colorRole="inverse" style={{ fontWeight: '700' }}>
+                      Save
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <ScrollView
+                contentContainerStyle={{ padding: tokens.spacing.lg, gap: tokens.spacing.lg }}
+                showsVerticalScrollIndicator={false}
+              >
+                {/* DP Picker Section */}
+                <View style={{ alignItems: 'center', marginVertical: tokens.spacing.md }}>
+                  <View style={styles.avatarWrapper}>
+                    <Avatar
+                      name={editDisplayName || user?.displayName || 'User'}
+                      uri={user?.avatarUrl}
+                      size="xl"
+                      presence="online"
+                      onPress={handlePickAvatar}
+                    />
+                    <Pressable
+                      onPress={handlePickAvatar}
+                      disabled={isUploadingDP}
+                      style={[
+                        styles.cameraBadgeLarge,
+                        { backgroundColor: theme.primary, borderColor: theme.background },
+                      ]}
+                      accessibilityRole="button"
+                    >
+                      {isUploadingDP ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Ionicons name="camera" size={20} color="#FFFFFF" />
+                      )}
+                    </Pressable>
+                  </View>
+                  <Pressable
+                    onPress={handlePickAvatar}
+                    style={{ marginTop: tokens.spacing.sm, paddingVertical: 4 }}
+                  >
+                    <Text variant="bodyMedium" colorRole="primary" style={{ fontWeight: '600' }}>
+                      {isUploadingDP ? 'Uploading new photo...' : 'Change Profile Picture'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* Display Name Input */}
+                <View style={styles.inputGroup}>
+                  <Text variant="caption" colorRole="secondary" style={styles.inputLabel}>
+                    YOUR NAME
+                  </Text>
+                  <TextInput
+                    value={editDisplayName}
+                    onChangeText={setEditDisplayName}
+                    placeholder="Enter your name"
+                    placeholderTextColor={theme.textSecondary}
+                    style={[
+                      styles.inputField,
+                      {
+                        backgroundColor: theme.surface,
+                        color: theme.textPrimary,
+                        borderColor: theme.divider,
+                      },
+                    ]}
+                    maxLength={50}
+                  />
+                  <Text variant="caption" colorRole="secondary">
+                    This is not your username. This name will be visible to your ChatFlow contacts.
+                  </Text>
+                </View>
+
+                {/* Username Input with live validation */}
+                <View style={styles.inputGroup}>
+                  <Text variant="caption" colorRole="secondary" style={styles.inputLabel}>
+                    USERNAME
+                  </Text>
+                  <View
+                    style={[
+                      styles.usernameInputRow,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor:
+                          usernameStatus.checking
+                            ? theme.primary
+                            : usernameStatus.available
+                            ? theme.success
+                            : theme.error,
+                      },
+                    ]}
+                  >
+                    <Text variant="bodyMedium" style={{ color: theme.primary, fontWeight: '700', paddingLeft: 12 }}>
+                      @
+                    </Text>
+                    <TextInput
+                      value={editUsername}
+                      onChangeText={handleUsernameChange}
+                      placeholder="username"
+                      placeholderTextColor={theme.textSecondary}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={[
+                        styles.usernameInputField,
+                        { color: theme.textPrimary },
+                      ]}
+                      maxLength={20}
+                    />
+                    <View style={{ paddingRight: 12 }}>
+                      {usernameStatus.checking ? (
+                        <ActivityIndicator size="small" color={theme.primary} />
+                      ) : usernameStatus.available ? (
+                        <Ionicons name="checkmark-circle" size={20} color={theme.success} />
+                      ) : (
+                        <Ionicons name="close-circle" size={20} color={theme.error} />
+                      )}
+                    </View>
+                  </View>
+                  <Text
+                    variant="caption"
+                    style={{
+                      color: usernameStatus.available ? theme.success : theme.error,
+                      marginTop: 2,
+                    }}
+                  >
+                    {usernameStatus.message || 'Unique handle for contacts to find you (3-20 characters)'}
+                  </Text>
+                </View>
+
+                {/* Bio / About Input */}
+                <View style={styles.inputGroup}>
+                  <Text variant="caption" colorRole="secondary" style={styles.inputLabel}>
+                    ABOUT
+                  </Text>
+                  <TextInput
+                    value={editBio}
+                    onChangeText={setEditBio}
+                    placeholder="Hey there! I am using ChatFlow."
+                    placeholderTextColor={theme.textSecondary}
+                    style={[
+                      styles.inputField,
+                      {
+                        backgroundColor: theme.surface,
+                        color: theme.textPrimary,
+                        borderColor: theme.divider,
+                      },
+                    ]}
+                    maxLength={140}
+                  />
+                </View>
+              </ScrollView>
+            </View>
+          </Modal>
+        )}
+
         <QRCodeModal
           visible={isQROpen}
           onClose={() => setIsQROpen(false)}
@@ -564,5 +949,64 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: tokens.spacing.md,
+  },
+  avatarWrapper: {
+    position: 'relative',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraBadgeLarge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButton: {
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.xs,
+    borderRadius: tokens.radii.pill,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inputGroup: {
+    gap: 6,
+  },
+  inputLabel: {
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  inputField: {
+    borderRadius: tokens.radii.md,
+    borderWidth: 1,
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.sm,
+    fontSize: 16,
+  },
+  usernameInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: tokens.radii.md,
+    borderWidth: 1.5,
+  },
+  usernameInputField: {
+    flex: 1,
+    paddingHorizontal: tokens.spacing.sm,
+    paddingVertical: tokens.spacing.sm,
+    fontSize: 16,
   },
 });
