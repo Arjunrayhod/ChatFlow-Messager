@@ -57,10 +57,13 @@ export function initSocketServer(
       const identity = await verifyAuthToken(token);
       if (!identity) return next(new Error('Authentication failed'));
 
-      const user = await db.findUserByFirebaseUid(identity.uid);
+      let user = await db.findUserByFirebaseUid(identity.uid);
+      if (!user) {
+        user = await db.findUserById(identity.uid);
+      }
       socket.data.userId = user?.id || identity.uid;
       socket.data.email = user?.email || identity.email;
-      socket.data.username = user?.username || '';
+      socket.data.username = user?.username || (identity.email ? identity.email.split('@')[0] : '') || '';
       next();
     } catch (err) {
       logger.warn({ err }, 'Socket authentication failed');
@@ -344,12 +347,45 @@ export function initSocketServer(
         if (!callerUser) {
           callerUser = await db.findUserByFirebaseUid(userId);
         }
+        if (!callerUser) {
+          callerUser = await db.createUser({
+            firebaseUid: userId,
+            email: socket.data.email || `${username || userId}@chatflow.local`,
+            username: socket.data.username || username || userId,
+            displayName: socket.data.username || username || 'User',
+          });
+        }
+
         let receiverUser = await db.findUserById(receiverId);
         if (!receiverUser) {
           receiverUser = await db.findUserByUsername(receiverId);
         }
         if (!receiverUser) {
           receiverUser = await db.findUserByFirebaseUid(receiverId);
+        }
+        if (!receiverUser) {
+          const allSockets = await io.fetchSockets();
+          const receiverSocket = allSockets.find(
+            (s) =>
+              s.data.userId === receiverId ||
+              (s.data.username && s.data.username.toLowerCase() === receiverId.toLowerCase().replace(/^@/, '')) ||
+              (s.data.email && s.data.email.toLowerCase() === receiverId.toLowerCase())
+          );
+          if (receiverSocket) {
+            receiverUser = await db.createUser({
+              firebaseUid: receiverSocket.data.userId,
+              email: receiverSocket.data.email || `${receiverId}@chatflow.local`,
+              username: receiverSocket.data.username || receiverId,
+              displayName: receiverSocket.data.username || receiverId,
+            });
+          } else if (receiverId) {
+            receiverUser = await db.createUser({
+              firebaseUid: receiverId,
+              email: `${receiverId}@chatflow.local`,
+              username: receiverId.replace(/^@/, ''),
+              displayName: receiverId.replace(/^@/, ''),
+            });
+          }
         }
 
         if (!callerUser || !receiverUser || callerUser.id === receiverUser.id || (await db.findCallById(callId))) {
