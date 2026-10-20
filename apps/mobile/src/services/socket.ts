@@ -25,6 +25,7 @@ export function getSocketUrl(): string {
   const isLocalHost = Boolean(browserHost && (browserHost === 'localhost' || browserHost === '127.0.0.1'));
   const browserIsRemote = Boolean(browserHost && !isLocalHost);
   const configuredUrl = configuredUrls.find((url) =>
+    !url.includes('duckdns.org') &&
     !(Platform.OS === 'web' && browserIsRemote && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url))
   );
   if (configuredUrl) {

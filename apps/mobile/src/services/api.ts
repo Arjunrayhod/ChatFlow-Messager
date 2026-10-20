@@ -25,10 +25,11 @@ export function getApiBaseUrl(): string {
   const isLocalHost = Boolean(browserHost && (browserHost === 'localhost' || browserHost === '127.0.0.1'));
   const browserIsRemote = Boolean(browserHost && !isLocalHost);
   const configIsLocal = Boolean(configuredUrl && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(configuredUrl));
+  const isStaleDuckDns = Boolean(configuredUrl && configuredUrl.includes('duckdns.org'));
 
   // A production browser must use the explicitly configured API host. Ignore a local .env URL
-  // only when a remote browser is being served, then preserve the LAN-development fallback.
-  if (configuredUrl && !(Platform.OS === 'web' && browserIsRemote && configIsLocal)) {
+  // or deprecated AWS duckdns endpoint, then preserve the LAN-development fallback.
+  if (configuredUrl && !isStaleDuckDns && !(Platform.OS === 'web' && browserIsRemote && configIsLocal)) {
     return configuredUrl.replace(/\/$/, '');
   }
 

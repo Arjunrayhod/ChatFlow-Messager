@@ -9,7 +9,6 @@ export interface CallIceServer {
 const fallbackIceServers: CallIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:chatflow-arjun.duckdns.org:3478' },
 ];
 
 /** Fetches short-lived TURN credentials without ever embedding the shared secret in the app. */

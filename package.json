@@ -5,6 +5,7 @@
   "description": "ChatFlow - Private messaging. Your Gmail. No numbers.",
   "scripts": {
     "build": "pnpm -r run build",
+    "build:web": "pnpm --filter @chatflow/mobile build",
     "dev:server": "pnpm --filter @chatflow/server dev",
     "dev:mobile": "pnpm --filter @chatflow/mobile start",
     "typecheck": "pnpm -r run typecheck",
