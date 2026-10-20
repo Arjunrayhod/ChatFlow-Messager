@@ -32,7 +32,7 @@ import {
   Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useRootNavigationState } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { tokens } from '../../src/theme/tokens';
 import { Text } from '../../src/components/atoms/Text';
@@ -46,6 +46,7 @@ const CHATFLOW_LOGO = require('../../assets/logo.jpeg');
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
@@ -55,10 +56,18 @@ export default function SignInScreen() {
   const [validationError, setValidationError] = useState<string | null>(null);
 
   React.useEffect(() => {
+    if (!rootNavigationState?.key) return;
     if (isAuthenticated && isOnboarded) {
-      router.replace('/(tabs)/chats');
+      const timer = setTimeout(() => {
+        try {
+          router.replace('/(tabs)/chats');
+        } catch (e) {
+          console.warn('[SignIn] Safe route redirect error ignored:', e);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, isOnboarded, router]);
+  }, [rootNavigationState?.key, isAuthenticated, isOnboarded, router]);
 
   const handleGoogleButtonClick = async () => {
     setValidationError(null);

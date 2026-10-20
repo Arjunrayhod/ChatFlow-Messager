@@ -15,7 +15,7 @@
 
 import React, { useEffect } from 'react';
 import { View, StyleSheet, ActivityIndicator, useColorScheme, Image } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useRootNavigationState } from 'expo-router';
 import { tokens } from '../src/theme/tokens';
 import { Text } from '../src/components/atoms/Text';
 import { BrandFooter } from '../src/components/atoms/BrandFooter';
@@ -26,6 +26,7 @@ const CHATFLOW_LOGO = require('../assets/logo.jpeg');
 
 export default function GatewayScreen() {
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
@@ -33,19 +34,18 @@ export default function GatewayScreen() {
   const { checkHealth } = useHealthStore();
 
   useEffect(() => {
+    // 1. MUST wait until Expo Router Root Layout has fully mounted
+    if (!rootNavigationState?.key) return;
+
+    // 2. MUST wait until Zustand store hydration is complete
+    if (!isHydrated) return;
+
     // Probe backend connectivity in background safely
     void checkHealth().catch((err) => {
       console.warn('[Gateway] Health probe error ignored safely:', err);
     });
 
-    if (!isHydrated) return;
-
-    if (isAuthenticated && isOnboarded) {
-      router.replace('/(tabs)/chats');
-      return;
-    }
-
-    // Smooth splash delay for WhatsApp-style brand reveal
+    // Defer navigation to next cycle to guarantee Root Layout navigator is ready
     const timer = setTimeout(() => {
       try {
         if (isAuthenticated && isOnboarded) {
@@ -58,10 +58,10 @@ export default function GatewayScreen() {
       } catch (navErr) {
         console.warn('[Gateway] Navigation transition error ignored safely:', navErr);
       }
-    }, 400);
+    }, 120);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, isOnboarded, isHydrated, router, checkHealth]);
+  }, [rootNavigationState?.key, isAuthenticated, isOnboarded, isHydrated, router, checkHealth]);
 
   return (
     <View style={[styles.splashRoot, { backgroundColor: theme.background }]}>
