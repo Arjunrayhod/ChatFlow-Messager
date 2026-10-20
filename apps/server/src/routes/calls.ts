@@ -26,7 +26,10 @@ export const callsRouter: Router = Router();
 callsRouter.get('/ice-servers', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
     { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com:3478' },
   ];
 
   if (env.TURN_HOST && env.TURN_SHARED_SECRET) {

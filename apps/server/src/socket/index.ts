@@ -436,11 +436,29 @@ export function initSocketServer(
       }
     });
 
+    const matchesUser = async (candidateId?: string | null, participantId?: string | null): Promise<boolean> => {
+      if (!candidateId || !participantId) return false;
+      if (candidateId === participantId) return true;
+      const u =
+        (await db.findUserById(candidateId)) ||
+        (await db.findUserByFirebaseUid(candidateId)) ||
+        (await db.findUserByUsername(candidateId));
+      if (!u) return false;
+      return u.id === participantId || u.firebaseUid === participantId || u.username === participantId;
+    };
+
     // B. Answer Call (Receiver accepts offer with answer SDP)
     socket.on('call_answer', async ({ callId, callerId, sdp }) => {
       try {
         const call = await db.findCallById(callId);
-        if (!call || call.receiverId !== userId || callerId !== call.callerId || call.status !== 'ringing') {
+        if (!call) {
+          socket.emit('error', { code: 'CALL_NOT_FOUND', message: 'Call not found' });
+          return;
+        }
+        const isReceiver = await matchesUser(userId, call.receiverId);
+        const isCaller = await matchesUser(callerId, call.callerId);
+        if (!isReceiver || !isCaller || call.status !== 'ringing') {
+          logger.warn({ callId, userId, callerId, callReceiver: call.receiverId, callCaller: call.callerId, status: call.status }, 'call_answer authorization check failed');
           socket.emit('error', { code: 'CALL_NOT_ALLOWED', message: 'You cannot answer this call' });
           return;
         }
@@ -461,12 +479,17 @@ export function initSocketServer(
           answeredAt: new Date().toISOString(),
         });
 
+        const peerCallerId = call.callerId;
         const callerUser =
+          (await db.findUserById(peerCallerId)) ||
           (await db.findUserById(callerId)) ||
           (await db.findUserByFirebaseUid(callerId)) ||
           (await db.findUserByUsername(callerId));
 
         let callerEmitter = io.to(`user_${callerId}`);
+        if (peerCallerId && `user_${peerCallerId}` !== `user_${callerId}`) {
+          callerEmitter = callerEmitter.to(`user_${peerCallerId}`);
+        }
         if (callerUser?.username && `user_${callerUser.username}` !== `user_${callerId}`) {
           callerEmitter = callerEmitter.to(`user_${callerUser.username}`);
         }
@@ -483,7 +506,7 @@ export function initSocketServer(
           sdp,
         });
 
-        logger.info({ callId, callerId, responderId: effectiveResponderId }, `Call answered & connected`);
+        logger.info({ callId, callerId: peerCallerId, responderId: effectiveResponderId }, `Call answered & connected`);
       } catch (err) {
         logger.error({ err, callId }, 'Failed to answer call');
       }
@@ -493,8 +516,10 @@ export function initSocketServer(
     socket.on('call_reject', async ({ callId, callerId, reason }) => {
       try {
         const call = await db.findCallById(callId);
-        if (!call || call.receiverId !== userId || callerId !== call.callerId || call.status !== 'ringing') {
-          socket.emit('error', { code: 'CALL_NOT_ALLOWED', message: 'You cannot reject this call' });
+        if (!call) return;
+        const isReceiver = await matchesUser(userId, call.receiverId);
+        const isCaller = await matchesUser(callerId, call.callerId);
+        if (!isReceiver || !isCaller || call.status !== 'ringing') {
           return;
         }
         const isBusy = Boolean(reason?.toLowerCase().includes('busy'));
@@ -503,12 +528,17 @@ export function initSocketServer(
           endedAt: new Date().toISOString(),
         });
 
+        const peerCallerId = call.callerId;
         const callerUser =
+          (await db.findUserById(peerCallerId)) ||
           (await db.findUserById(callerId)) ||
           (await db.findUserByFirebaseUid(callerId)) ||
           (await db.findUserByUsername(callerId));
 
         let rejectEmitter = io.to(`user_${callerId}`);
+        if (peerCallerId && `user_${peerCallerId}` !== `user_${callerId}`) {
+          rejectEmitter = rejectEmitter.to(`user_${peerCallerId}`);
+        }
         if (callerUser?.username && `user_${callerUser.username}` !== `user_${callerId}`) {
           rejectEmitter = rejectEmitter.to(`user_${callerUser.username}`);
         }
@@ -525,7 +555,7 @@ export function initSocketServer(
         });
 
         logger.info(
-          { callId, callerId, rejectedBy: userId, isBusy, reason },
+          { callId, callerId: peerCallerId, rejectedBy: userId, isBusy, reason },
           isBusy ? `Call marked busy (receiver engaged on another call)` : `Call rejected`
         );
       } catch (err) {
@@ -536,14 +566,27 @@ export function initSocketServer(
     // D. ICE Candidate Exchange
     socket.on('call_ice_candidate', async ({ callId, targetUserId, candidate }) => {
       const call = await db.findCallById(callId);
-      if (!call || call.status === 'ended' || call.status === 'rejected' || call.status === 'missed' || call.status === 'busy') return;
-      const expectedPeerId = call.callerId === userId ? call.receiverId : call.receiverId === userId ? call.callerId : null;
-      if (!expectedPeerId || targetUserId !== expectedPeerId) return;
+      if (!call || ['ended', 'rejected', 'missed', 'busy'].includes(call.status)) return;
+      const isCaller = await matchesUser(userId, call.callerId);
+      const isReceiver = await matchesUser(userId, call.receiverId);
+      if (!isCaller && !isReceiver) return;
+
+      const targetMatchesPeer = isCaller
+        ? await matchesUser(targetUserId, call.receiverId)
+        : await matchesUser(targetUserId, call.callerId);
+      if (!targetMatchesPeer) return;
+
+      const expectedPeerId = isCaller ? call.receiverId : call.callerId;
       const targetUser =
+        (await db.findUserById(expectedPeerId)) ||
         (await db.findUserById(targetUserId)) ||
         (await db.findUserByFirebaseUid(targetUserId)) ||
         (await db.findUserByUsername(targetUserId));
+
       let candidateEmitter = io.to(`user_${targetUserId}`);
+      if (expectedPeerId && `user_${expectedPeerId}` !== `user_${targetUserId}`) {
+        candidateEmitter = candidateEmitter.to(`user_${expectedPeerId}`);
+      }
       if (targetUser?.username && `user_${targetUser.username}` !== `user_${targetUserId}`) {
         candidateEmitter = candidateEmitter.to(`user_${targetUser.username}`);
       }
@@ -565,15 +608,23 @@ export function initSocketServer(
     socket.on('call_end', async ({ callId, targetUserId, durationSeconds, reason }) => {
       try {
         const call = await db.findCallById(callId);
-        const expectedPeerId = call?.callerId === userId
-          ? call.receiverId
-          : call?.receiverId === userId
-            ? call.callerId
-            : null;
-        if (!call || !expectedPeerId || targetUserId !== expectedPeerId || ['ended', 'rejected', 'missed', 'busy'].includes(call.status)) {
+        if (!call || ['ended', 'rejected', 'missed', 'busy'].includes(call.status)) return;
+        const isCaller = await matchesUser(userId, call.callerId);
+        const isReceiver = await matchesUser(userId, call.receiverId);
+        if (!isCaller && !isReceiver) {
           socket.emit('error', { code: 'CALL_NOT_ALLOWED', message: 'You cannot end this call' });
           return;
         }
+
+        const targetMatchesPeer = isCaller
+          ? await matchesUser(targetUserId, call.receiverId)
+          : await matchesUser(targetUserId, call.callerId);
+        if (!targetMatchesPeer) {
+          socket.emit('error', { code: 'CALL_NOT_ALLOWED', message: 'You cannot end this call' });
+          return;
+        }
+
+        const expectedPeerId = isCaller ? call.receiverId : call.callerId;
         const finalDuration =
           durationSeconds ??
           (call?.answeredAt
@@ -589,10 +640,15 @@ export function initSocketServer(
         });
 
         const targetUser =
+          (await db.findUserById(expectedPeerId)) ||
           (await db.findUserById(targetUserId)) ||
           (await db.findUserByFirebaseUid(targetUserId)) ||
           (await db.findUserByUsername(targetUserId));
+
         let endEmitter = io.to(`user_${targetUserId}`);
+        if (expectedPeerId && `user_${expectedPeerId}` !== `user_${targetUserId}`) {
+          endEmitter = endEmitter.to(`user_${expectedPeerId}`);
+        }
         if (targetUser?.username && `user_${targetUser.username}` !== `user_${targetUserId}`) {
           endEmitter = endEmitter.to(`user_${targetUser.username}`);
         }
