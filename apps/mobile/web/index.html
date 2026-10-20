@@ -46,6 +46,13 @@
       button {
         touch-action: manipulation !important;
       }
+      @media print {
+        html, body, #root, * {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+        }
+      }
     </style>
   </head>
   <body>

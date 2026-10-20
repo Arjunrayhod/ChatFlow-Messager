@@ -65,4 +65,12 @@ input, textarea {
 button {
   touch-action: manipulation;
 }
+
+@media print {
+  html, body, #root, * {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+}
 `;

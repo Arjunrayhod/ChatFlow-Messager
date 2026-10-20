@@ -90,6 +90,8 @@ export default function ChatRoomScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [lightboxData, setLightboxData] = useState<MediaLightboxData | null>(null);
   const [chatScreenshotAlert, setChatScreenshotAlert] = useState<string | null>(null);
+  const [isPrivacyShieldActive, setIsPrivacyShieldActive] = useState(false);
+  const privacyShieldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeMessage, setActiveMessage] = useState<ChatMessage | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [isEditingMessage, setIsEditingMessage] = useState(false);
@@ -482,7 +484,12 @@ export default function ChatRoomScreen() {
       takerDisplayName: string;
     }) => {
       if (payload.targetId === chatId || payload.targetType === 'chat') {
-        setChatScreenshotAlert(`⚠️ @${payload.takerUsername} took a screenshot of this chat!`);
+        setIsPrivacyShieldActive(true);
+        if (privacyShieldTimerRef.current) clearTimeout(privacyShieldTimerRef.current);
+        privacyShieldTimerRef.current = setTimeout(() => {
+          setIsPrivacyShieldActive(false);
+        }, 3000);
+        setChatScreenshotAlert(`⚠️ @${payload.takerUsername} attempted to take a screenshot of this chat!`);
         setTimeout(() => setChatScreenshotAlert(null), 7000);
       }
     };
@@ -493,31 +500,107 @@ export default function ChatRoomScreen() {
     socket.on('chat_refresh', handleChatRefresh);
     socket.on('screenshot_detected', handleScreenshotDetected);
 
-    // Enforce screenshot prevention on native devices (Android FLAG_SECURE / iOS screen recording prevention)
+    // 1. Enforce screenshot prevention on native devices (Android FLAG_SECURE / iOS screen recording prevention)
+    let nativeScreenshotSub: { remove: () => void } | null = null;
     if (Platform.OS !== 'web') {
       void ScreenCapture.preventScreenCaptureAsync().catch(() => {});
+      try {
+        nativeScreenshotSub = ScreenCapture.addScreenshotListener(() => {
+          setIsPrivacyShieldActive(true);
+          if (privacyShieldTimerRef.current) clearTimeout(privacyShieldTimerRef.current);
+          privacyShieldTimerRef.current = setTimeout(() => {
+            setIsPrivacyShieldActive(false);
+          }, 3000);
+          setChatScreenshotAlert('🔒 Screenshot blocked by ChatFlow Security Policy.');
+          setTimeout(() => setChatScreenshotAlert(null), 6000);
+
+          const liveSocket = getSocket();
+          if (liveSocket?.connected && user) {
+            liveSocket.emit('screenshot_alert', {
+              targetType: 'chat',
+              targetId: chatId,
+              ownerId: recipientId,
+              takerUserId: user.id,
+              takerUsername: user.username,
+              takerDisplayName: user.displayName || user.username,
+            });
+          }
+        });
+      } catch {}
     }
 
-    // On Web: Prevent PrintScreen / Ctrl+P / Cmd+Shift+4 / Ctrl+S
-    const handleWebKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === 'PrintScreen' ||
-        ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P' || e.key === 's' || e.key === 'S'))
-      ) {
-        e.preventDefault();
+    // 2. On Web & Mobile Browser: Block PrintScreen / Snipping / Captures & Blank Clipboard
+    const triggerWebScreenshotBlock = (e?: Event) => {
+      if (e) {
         try {
-          if (navigator.clipboard?.writeText) {
-            void navigator.clipboard.writeText('');
-          }
+          e.preventDefault();
+          e.stopPropagation();
         } catch {}
-        setChatScreenshotAlert('🔒 Screenshots and prints are strictly blocked in ChatFlow private chats.');
-        setTimeout(() => setChatScreenshotAlert(null), 5000);
+      }
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          void navigator.clipboard.writeText('');
+        }
+      } catch {}
+
+      setIsPrivacyShieldActive(true);
+      if (privacyShieldTimerRef.current) clearTimeout(privacyShieldTimerRef.current);
+      privacyShieldTimerRef.current = setTimeout(() => {
+        setIsPrivacyShieldActive(false);
+      }, 2500);
+
+      setChatScreenshotAlert('🔒 Screenshots and screen snips are strictly blocked in ChatFlow private chats.');
+      setTimeout(() => setChatScreenshotAlert(null), 6000);
+
+      const liveSocket = getSocket();
+      if (liveSocket?.connected && user) {
+        liveSocket.emit('screenshot_alert', {
+          targetType: 'chat',
+          targetId: chatId,
+          ownerId: recipientId,
+          takerUserId: user.id,
+          takerUsername: user.username,
+          takerDisplayName: user.displayName || user.username,
+        });
+      }
+    };
+
+    const handleWebKeyDown = (e: KeyboardEvent) => {
+      const isPrintScreen = e.key === 'PrintScreen' || e.key === 'Snapshot' || (e.altKey && e.key === 'PrintScreen');
+      const isSnippingTool = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S' || e.key === '3' || e.key === '4' || e.key === '5');
+      const isPrintOrSave = (e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P' || e.key === 's' || e.key === 'S');
+
+      if (isPrintScreen || isSnippingTool || isPrintOrSave) {
+        triggerWebScreenshotBlock(e);
+      }
+    };
+
+    // Mobile Browser & Web: Cover screen when app loses focus or screenshot gesture is performed
+    const handleWindowBlur = () => {
+      setIsPrivacyShieldActive(true);
+    };
+
+    const handleWindowFocus = () => {
+      if (privacyShieldTimerRef.current) clearTimeout(privacyShieldTimerRef.current);
+      privacyShieldTimerRef.current = setTimeout(() => {
+        setIsPrivacyShieldActive(false);
+      }, 300);
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        setIsPrivacyShieldActive(true);
+      } else {
+        handleWindowFocus();
       }
     };
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.addEventListener('keyup', handleWebKeyDown);
-      window.addEventListener('keydown', handleWebKeyDown);
+      window.addEventListener('keyup', handleWebKeyDown, true);
+      window.addEventListener('keydown', handleWebKeyDown, true);
+      window.addEventListener('blur', handleWindowBlur);
+      window.addEventListener('focus', handleWindowFocus);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     return () => {
@@ -525,10 +608,14 @@ export default function ChatRoomScreen() {
       useChatStore.getState().setActiveChatId(null);
       if (Platform.OS !== 'web') {
         void ScreenCapture.allowScreenCaptureAsync().catch(() => {});
+        nativeScreenshotSub?.remove();
       }
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.removeEventListener('keyup', handleWebKeyDown);
-        window.removeEventListener('keydown', handleWebKeyDown);
+        window.removeEventListener('keyup', handleWebKeyDown, true);
+        window.removeEventListener('keydown', handleWebKeyDown, true);
+        window.removeEventListener('blur', handleWindowBlur);
+        window.removeEventListener('focus', handleWindowFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
       socket.off('message_new', handleMessageNew);
       socket.off('user_typing', handleUserTyping);
@@ -536,31 +623,7 @@ export default function ChatRoomScreen() {
       socket.off('chat_refresh', handleChatRefresh);
       socket.off('screenshot_detected', handleScreenshotDetected);
     };
-  }, [chatId, params.id, token, user?.id, loadHistory, receiveMessage, setUserTyping, updateMessageStatus]);
-
-  // Keyboard shortcut screenshot detection for Web in Chat
-  useEffect(() => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const handleKeyUp = (e: KeyboardEvent) => {
-        if (e.key === 'PrintScreen' || (e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4'))) {
-          const socket = getSocket();
-          if (socket?.connected && user) {
-            socket.emit('screenshot_alert', {
-              targetType: 'chat',
-              targetId: chatId,
-              ownerId: recipientId,
-              takerUserId: user.id,
-              takerUsername: user.username,
-              takerDisplayName: user.displayName,
-            });
-          }
-        }
-      };
-      window.addEventListener('keyup', handleKeyUp);
-      return () => window.removeEventListener('keyup', handleKeyUp);
-    }
-    return undefined;
-  }, [chatId, recipientId, user]);
+  }, [chatId, params.id, token, user?.id, loadHistory, receiveMessage, setUserTyping, updateMessageStatus, recipientId, user]);
 
   const handleSend = () => {
     if (!inputText.trim() || !user) return;
@@ -1085,6 +1148,36 @@ export default function ChatRoomScreen() {
           );
         }}
       />
+
+      {isPrivacyShieldActive && (
+        <Pressable
+          style={styles.privacyShieldOverlay}
+          onPress={() => setIsPrivacyShieldActive(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss privacy shield"
+        >
+          <View style={styles.privacyShieldCard}>
+            <View style={styles.privacyShieldIconCircle}>
+              <Ionicons name="shield-checkmark" size={38} color="#00a884" />
+            </View>
+            <Text variant="h2" style={{ color: '#FFFFFF', marginTop: 14, textAlign: 'center' }}>
+              Screen Privacy Active
+            </Text>
+            <Text variant="caption" style={{ color: '#8696A0', textAlign: 'center', marginTop: 8, lineHeight: 18, maxWidth: 280 }}>
+              Chat content is hidden to prevent unauthorized screenshots and recordings.
+            </Text>
+            <View style={styles.privacyShieldPill}>
+              <Ionicons name="lock-closed" size={13} color="#00a884" />
+              <Text variant="caption" style={{ color: '#00a884', fontWeight: '700', marginLeft: 6 }}>
+                ChatFlow Anti-Capture
+              </Text>
+            </View>
+            <Text variant="caption" style={{ color: '#00a884', marginTop: 14, opacity: 0.8 }}>
+              Tap anywhere to resume chat
+            </Text>
+          </View>
+        </Pressable>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -1235,4 +1328,44 @@ const styles = StyleSheet.create({
   taskRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingVertical: 8 },
   assignChoice: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: tokens.radii.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: '#D8DEE3' },
   completedTask: { textDecorationLine: 'line-through', color: '#8696A0' },
+  privacyShieldOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0B141A',
+    zIndex: 99999,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: tokens.spacing.xl,
+  },
+  privacyShieldCard: {
+    alignItems: 'center',
+    padding: tokens.spacing.xl,
+    backgroundColor: '#1F2C34',
+    borderRadius: tokens.radii.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 168, 132, 0.4)',
+    maxWidth: 340,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  privacyShieldIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: 'rgba(0, 168, 132, 0.16)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  privacyShieldPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 168, 132, 0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radii.pill,
+    marginTop: 14,
+  },
 });
