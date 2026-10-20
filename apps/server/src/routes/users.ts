@@ -23,6 +23,7 @@ import {
 } from '@chatflow/shared';
 import { requireAuth } from '../middlewares/auth';
 import { db } from '../services/db';
+import { env } from '../config/env';
 
 export const usersRouter: Router = Router();
 
@@ -69,8 +70,12 @@ const searchQuerySchema = z.object({
 });
 
 const pushTokenSchema = z.object({
-  token: z.string().trim().min(5).max(2048),
+  token: z.string().trim().min(5).max(4096),
   platform: z.enum(['ios', 'android', 'web']),
+});
+
+usersRouter.get('/vapid-public-key', (_req: Request, res: Response): void => {
+  res.status(200).json(createSuccessResponse({ publicKey: env.VAPID_PUBLIC_KEY }));
 });
 
 usersRouter.put('/push-token', requireAuth, async (req: Request, res: Response): Promise<void> => {

@@ -86,6 +86,17 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   }
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 /** Registers this native or web device for push delivery. */
 export async function registerForIncomingCallPush(authToken: string): Promise<void> {
   await setupNotificationChannels();
@@ -94,16 +105,33 @@ export async function registerForIncomingCallPush(authToken: string): Promise<vo
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       try {
-        const reg = await navigator.serviceWorker.register('/sw.js');
+        const reg = await navigator.serviceWorker.ready;
         console.log('[Push] ServiceWorker active for notifications:', reg.scope);
 
+        if (granted && 'PushManager' in window && reg.pushManager) {
+          const vapidKey = 'BKbXyoQbpLR8pQQUUgDBIPRRXOWwy-kqAPHfZQMx1omc5P754pGUtU4jEOV5NklceF_jhx1_x069O0fLWo5Ivc4';
+          let sub = await reg.pushManager.getSubscription();
+          if (!sub) {
+            sub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(vapidKey) as any,
+            });
+          }
+          if (sub) {
+            const subJson = JSON.stringify(sub.toJSON ? sub.toJSON() : sub);
+            await registerPushToken(authToken, subJson, 'web');
+            console.log('[Push] Web push subscription registered successfully with backend!');
+            return;
+          }
+        }
+
+        // Fallback web identifier if pushManager is restricted
         if (granted) {
-          // Register web token identifier with server so backend can track active devices
-          const webDeviceId = `web_device_${Date.now()}`;
-          await registerPushToken(authToken, webDeviceId, 'web').catch(() => {});
+          const fallbackId = `web_${Date.now()}`;
+          await registerPushToken(authToken, fallbackId, 'web').catch(() => {});
         }
       } catch (err) {
-        console.warn('[Push] ServiceWorker registration error:', err);
+        console.warn('[Push] ServiceWorker/WebPush registration error:', err);
       }
     }
     return;

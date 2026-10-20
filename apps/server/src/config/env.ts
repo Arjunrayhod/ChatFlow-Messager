@@ -33,6 +33,9 @@ const envSchema = z.object({
   TURN_TLS_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   TURNS_PORT: z.coerce.number().default(5349),
   TURN_TTL_SECONDS: z.coerce.number().min(60).max(86400).default(3600),
+  VAPID_PUBLIC_KEY: z.string().default('BKbXyoQbpLR8pQQUUgDBIPRRXOWwy-kqAPHfZQMx1omc5P754pGUtU4jEOV5NklceF_jhx1_x069O0fLWo5Ivc4'),
+  VAPID_PRIVATE_KEY: z.string().default('30sVflyLfm477ffJeXFbGhL7SPhTGL5bs6kIpFlTVuk'),
+  VAPID_SUBJECT: z.string().default('mailto:support@chatflow.local'),
 });
 
 /**
