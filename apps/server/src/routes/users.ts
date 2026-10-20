@@ -69,8 +69,8 @@ const searchQuerySchema = z.object({
 });
 
 const pushTokenSchema = z.object({
-  token: z.string().trim().min(20).max(512).regex(/^(Exponent|Expo)PushToken\[[^\]]+\]$/),
-  platform: z.enum(['ios', 'android']),
+  token: z.string().trim().min(5).max(2048),
+  platform: z.enum(['ios', 'android', 'web']),
 });
 
 usersRouter.put('/push-token', requireAuth, async (req: Request, res: Response): Promise<void> => {

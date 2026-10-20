@@ -20,15 +20,23 @@ export function MediaPermissionPrompt({ enabled }: { enabled: boolean }) {
         if (window.sessionStorage.getItem(SESSION_KEY)) return;
 
         const permissions = navigator.permissions;
+        let micGranted = false;
+        let camGranted = false;
         if (permissions?.query) {
-          const [microphone, camera] = await Promise.all([
-            permissions.query({ name: 'microphone' as PermissionName }),
-            permissions.query({ name: 'camera' as PermissionName }),
-          ]);
-          if (!cancelled && microphone.state === 'granted' && camera.state === 'granted') {
-            window.sessionStorage.setItem(SESSION_KEY, '1');
-            return;
-          }
+          try {
+            const [microphone, camera] = await Promise.all([
+              permissions.query({ name: 'microphone' as PermissionName }),
+              permissions.query({ name: 'camera' as PermissionName }),
+            ]);
+            micGranted = microphone.state === 'granted';
+            camGranted = camera.state === 'granted';
+          } catch {}
+        }
+        const notifGranted = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission === 'granted' : true;
+
+        if (!cancelled && micGranted && camGranted && notifGranted) {
+          window.sessionStorage.setItem(SESSION_KEY, '1');
+          return;
         }
       } catch {
         // Some browsers do not expose camera/microphone permission state.
@@ -53,24 +61,32 @@ export function MediaPermissionPrompt({ enabled }: { enabled: boolean }) {
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError('Is browser mein camera/microphone access available nahi hai.');
-      return;
-    }
-
     try {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-        stream.getTracks().forEach((track) => track.stop());
-      } catch (mediaErr) {
-        console.warn('[MediaPermissionPrompt] Media stream request optional error:', mediaErr);
-      }
-
-      if ('Notification' in window && Notification.permission === 'default') {
+      // 1. Request Notification Permission
+      if (typeof window !== 'undefined' && 'Notification' in window) {
         try {
-          await Notification.requestPermission();
+          const res = await Notification.requestPermission();
+          console.log('[MediaPermissionPrompt] Notification permission result:', res);
+          if (res === 'granted' && 'serviceWorker' in navigator) {
+            const reg = await navigator.serviceWorker.ready;
+            await reg.showNotification('ChatFlow Notifications Active 🔔', {
+              body: 'Aapko incoming calls aur messages ke alerts phone ke notification bar me milenge!',
+              icon: '/icon-192.png',
+              badge: '/icon-192.png',
+            });
+          }
         } catch (notifErr) {
           console.warn('[MediaPermissionPrompt] Notification request failed:', notifErr);
+        }
+      }
+
+      // 2. Request Camera & Mic
+      if (navigator.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (mediaErr) {
+          console.warn('[MediaPermissionPrompt] Media stream request optional error:', mediaErr);
         }
       }
 

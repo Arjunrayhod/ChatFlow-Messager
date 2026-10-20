@@ -20,8 +20,20 @@ Notifications.setNotificationHandler({
   },
 });
 
-/** Initializes Android channels for max-importance incoming calls and messages. */
+/** Initializes Android channels for max-importance incoming calls and messages, and registers PWA Service Worker on Web. */
 export async function setupNotificationChannels(): Promise<void> {
+  if (Platform.OS === 'web') {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        await navigator.serviceWorker.register('/sw.js');
+        console.log('[Push] PWA Service Worker registered successfully.');
+      } catch (e) {
+        console.warn('[Push] Service worker registration failed:', e);
+      }
+    }
+    return;
+  }
+
   if (Platform.OS === 'android') {
     try {
       await Notifications.setNotificationChannelAsync('incoming-calls', {
@@ -48,6 +60,9 @@ export async function setupNotificationChannels(): Promise<void> {
 /** Requests notification permissions on both Web and Mobile devices. */
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (Platform.OS === 'web') {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'granted') return true;
       if (Notification.permission !== 'denied') {
@@ -71,39 +86,62 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   }
 }
 
-/** Registers this native device for Expo's FCM-backed push delivery. */
+/** Registers this native or web device for push delivery. */
 export async function registerForIncomingCallPush(authToken: string): Promise<void> {
   await setupNotificationChannels();
   const granted = await requestNotificationPermissions();
-  if (!granted) {
-    console.warn('[Push] Notification permission was not granted');
+
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        console.log('[Push] ServiceWorker active for notifications:', reg.scope);
+
+        if (granted) {
+          // Register web token identifier with server so backend can track active devices
+          const webDeviceId = `web_device_${Date.now()}`;
+          await registerPushToken(authToken, webDeviceId, 'web').catch(() => {});
+        }
+      } catch (err) {
+        console.warn('[Push] ServiceWorker registration error:', err);
+      }
+    }
     return;
   }
 
-  if (Platform.OS === 'web' || !Device.isDevice) return;
-
-  const projectId = getEasProjectId();
-  if (!projectId) {
-    console.warn('[Push] EAS project ID is missing; link the project before building the APK');
-    return;
-  }
+  if (!Device.isDevice || !granted) return;
 
   try {
-    const pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    await registerPushToken(authToken, pushToken, Platform.OS as 'ios' | 'android');
-    console.log('[Push] Incoming-call notifications registered with token');
+    const projectId = getEasProjectId();
+    let pushToken: string | null = null;
+    if (projectId) {
+      pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    } else {
+      pushToken = (await Notifications.getDevicePushTokenAsync()).data;
+    }
+    if (pushToken) {
+      await registerPushToken(authToken, pushToken, Platform.OS as 'ios' | 'android');
+      console.log('[Push] Incoming-call notifications registered with token');
+    }
   } catch (err) {
     console.warn('[Push] Could not obtain push token:', err);
   }
 }
 
 export async function unregisterIncomingCallPush(authToken: string): Promise<void> {
-  if (Platform.OS === 'web' || !Device.isDevice) return;
+  if (Platform.OS === 'web') return;
+  if (!Device.isDevice) return;
   const projectId = getEasProjectId();
-  if (!projectId) return;
   try {
-    const pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    await unregisterPushToken(authToken, pushToken);
+    let pushToken: string | null = null;
+    if (projectId) {
+      pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    } else {
+      pushToken = (await Notifications.getDevicePushTokenAsync()).data;
+    }
+    if (pushToken) {
+      await unregisterPushToken(authToken, pushToken);
+    }
   } catch {
     // Ignore
   }
@@ -128,12 +166,36 @@ export async function showIncomingCallNotification(payload: {
   if (Platform.OS === 'web') {
     startTitleFlash(`📞 ${callerName} is calling...`);
 
+    // 1. Preferred for Android Chrome / Mobile browsers / PWAs: ServiceWorkerRegistration.showNotification
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification(displayTitle, {
+          body: displayBody,
+          icon: avatarUrl || '/icon-192.png',
+          badge: '/icon-192.png',
+          tag: `call_${callId}`,
+          vibrate: [0, 500, 250, 500, 250, 500, 250, 500],
+          requireInteraction: true,
+          data: { url: '/', type: 'incoming_call', callId },
+          actions: [
+            { action: 'answer', title: '✅ Answer' },
+            { action: 'decline', title: '❌ Decline' },
+          ],
+        } as any);
+        return;
+      } catch (swErr) {
+        console.warn('[Notification] ServiceWorker showNotification failed, trying fallback:', swErr);
+      }
+    }
+
+    // 2. Desktop browser fallback
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'granted') {
         try {
           const notif = new Notification(displayTitle, {
             body: displayBody,
-            icon: avatarUrl || undefined,
+            icon: avatarUrl || '/icon-192.png',
             tag: `call_${callId}`,
             requireInteraction: true,
           });
@@ -197,10 +259,33 @@ export async function showNewMessageNotification(payload: {
       startTitleFlash(`💬 ${title}: ${preview.substring(0, 20)}...`);
     }
 
+    // 1. Preferred for Android Chrome / Mobile browsers / PWAs: ServiceWorkerRegistration.showNotification
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification(title, {
+          body: preview,
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          tag: `msg_${chatId}`,
+          vibrate: [0, 250, 250, 250],
+          data: { url: `/chat/${chatId}`, chatId, type: 'message' },
+          actions: [
+            { action: 'open', title: '💬 Open Chat' },
+          ],
+        } as any);
+        return;
+      } catch (swErr) {
+        console.warn('[Notification] SW showNotification failed, trying fallback:', swErr);
+      }
+    }
+
+    // 2. Desktop browser fallback
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
         const notif = new Notification(title, {
           body: preview,
+          icon: '/icon-192.png',
           tag: `msg_${chatId}`,
         });
         notif.onclick = () => {

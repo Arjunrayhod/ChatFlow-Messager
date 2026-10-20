@@ -811,7 +811,7 @@ export async function getIncomingCallOffer(token: string, callId: string): Promi
   }
 }
 
-export async function registerPushToken(token: string, pushToken: string, platform: 'ios' | 'android'): Promise<void> {
+export async function registerPushToken(token: string, pushToken: string, platform: 'ios' | 'android' | 'web'): Promise<void> {
   const response = await fetchWithTimeout(`${API_BASE_URL}/api/users/push-token`, {
     method: 'PUT',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

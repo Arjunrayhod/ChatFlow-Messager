@@ -45,11 +45,27 @@ if (fs.existsSync(indexPath)) {
 
   if (!html.includes('manifest.json')) {
     html = html.replace('</head>', `${pwaTags}  </head>`);
-    fs.writeFileSync(indexPath, html, 'utf8');
     console.log('[post-export] Successfully injected PWA meta & high-res icons into dist/index.html!');
   } else {
     console.log('[post-export] manifest.json already present in dist/index.html.');
   }
+
+  const swScript = `
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+            console.warn('[PWA] Service Worker registration failed:', err);
+          });
+        });
+      }
+    </script>
+`;
+  if (!html.includes('/sw.js')) {
+    html = html.replace('</body>', `${swScript}  </body>`);
+    console.log('[post-export] Successfully injected ServiceWorker registration into dist/index.html!');
+  }
+  fs.writeFileSync(indexPath, html, 'utf8');
 } else {
   console.warn('[post-export] dist/index.html not found.');
 }

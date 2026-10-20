@@ -54,7 +54,7 @@ export class DatabaseService {
   // In-memory calls store: callId -> CallRecord
   private memoryCalls: Map<string, CallRecord> = new Map();
   private memoryCallOffers: Map<string, unknown> = new Map();
-  private memoryPushTokens: Map<string, Map<string, 'ios' | 'android'>> = new Map();
+  private memoryPushTokens: Map<string, Map<string, 'ios' | 'android' | 'web'>> = new Map();
 
   constructor() {
     if (
@@ -1724,8 +1724,8 @@ export class DatabaseService {
     return null;
   }
 
-  async savePushToken(userId: string, token: string, platform: 'ios' | 'android'): Promise<void> {
-    const tokens = this.memoryPushTokens.get(userId) || new Map<string, 'ios' | 'android'>();
+  async savePushToken(userId: string, token: string, platform: 'ios' | 'android' | 'web'): Promise<void> {
+    const tokens = this.memoryPushTokens.get(userId) || new Map<string, 'ios' | 'android' | 'web'>();
     tokens.set(token, platform);
     this.memoryPushTokens.set(userId, tokens);
     if (!this.supabase) return;

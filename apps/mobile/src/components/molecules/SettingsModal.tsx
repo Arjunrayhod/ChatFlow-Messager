@@ -368,6 +368,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </View>
               <Ionicons name="chevron-forward" size={18} color={theme.textDisabled} />
             </Pressable>
+
+            {/* Notifications & Calls Item */}
+            <Pressable
+              onPress={async () => {
+                if (typeof window !== 'undefined' && 'Notification' in window) {
+                  try {
+                    const res = await Notification.requestPermission();
+                    if (res === 'granted') {
+                      if ('serviceWorker' in navigator) {
+                        const reg = await navigator.serviceWorker.ready;
+                        await reg.showNotification('Notifications Active 🔔', {
+                          body: 'Incoming calls aur messages ke alerts notification bar me aayenge!',
+                          icon: '/icon-192.png',
+                          badge: '/icon-192.png',
+                        });
+                      }
+                      Alert.alert('Notifications Enabled', 'Call aur message alerts ab phone ke notification bar me show honge!');
+                    } else {
+                      Alert.alert('Permission Denied', 'Browser settings me jakar Notifications ko Allow karein.');
+                    }
+                  } catch (e: any) {
+                    Alert.alert('Error', e?.message || 'Could not request notification permission.');
+                  }
+                } else {
+                  Alert.alert('Notifications Active', 'Phone notifications configured.');
+                }
+              }}
+              style={({ pressed }) => [
+                styles.settingItem,
+                {
+                  backgroundColor: pressed ? theme.surfaceEmphasized : theme.surface,
+                  borderBottomColor: theme.divider,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Notifications & Calls"
+            >
+              <View
+                style={[
+                  styles.iconCircle,
+                  { backgroundColor: theme.surfaceEmphasized },
+                ]}
+              >
+                <Ionicons name="notifications-outline" size={22} color={theme.primary} />
+              </View>
+              <View style={styles.itemTextCol}>
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                  Notifications & Calls
+                </Text>
+                <Text variant="caption" colorRole="secondary">
+                  Tap to enable or test background call & message alerts
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textDisabled} />
+            </Pressable>
+
             {/* Account & Privacy Item */}
             <View
               style={[
