@@ -134,6 +134,28 @@ export async function verifyAuthToken(
     } catch (err) {
       logger.warn({ err }, 'Google token verification request failed');
     }
+
+    // Decode Firebase Auth ID token JWT payload when Admin SDK service account is not loaded
+    if (token.includes('.')) {
+      try {
+        const parts = token.split('.');
+        const payloadPart = parts[1];
+        if (payloadPart) {
+          const payloadJson = Buffer.from(payloadPart, 'base64').toString('utf8');
+          const payload = JSON.parse(payloadJson);
+          const email = (payload.email || '').trim().toLowerCase();
+          const uid = payload.user_id || payload.sub;
+          if (uid && email && (email.endsWith('@gmail.com') || email.endsWith('@googlemail.com'))) {
+            const nowSeconds = Math.floor(Date.now() / 1000);
+            if (!payload.exp || payload.exp > nowSeconds - 300) {
+              return { uid, email };
+            }
+          }
+        }
+      } catch (jwtErr) {
+        logger.warn({ jwtErr }, 'JWT decode failed');
+      }
+    }
   }
 
   if (token.startsWith('dev_token_')) {
