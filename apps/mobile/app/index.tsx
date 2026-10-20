@@ -29,7 +29,7 @@ export default function GatewayScreen() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
-  const { isAuthenticated, isOnboarded, isLoading: isAuthLoading } = useAuthStore();
+  const { isAuthenticated, isOnboarded, isHydrated } = useAuthStore();
   const { checkHealth } = useHealthStore();
 
   useEffect(() => {
@@ -37,6 +37,13 @@ export default function GatewayScreen() {
     void checkHealth().catch((err) => {
       console.warn('[Gateway] Health probe error ignored safely:', err);
     });
+
+    if (!isHydrated) return;
+
+    if (isAuthenticated && isOnboarded) {
+      router.replace('/(tabs)/chats');
+      return;
+    }
 
     // Smooth splash delay for WhatsApp-style brand reveal
     const timer = setTimeout(() => {
@@ -51,10 +58,10 @@ export default function GatewayScreen() {
       } catch (navErr) {
         console.warn('[Gateway] Navigation transition error ignored safely:', navErr);
       }
-    }, 600);
+    }, 400);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, isOnboarded, router, checkHealth]);
+  }, [isAuthenticated, isOnboarded, isHydrated, router, checkHealth]);
 
   return (
     <View style={[styles.splashRoot, { backgroundColor: theme.background }]}>

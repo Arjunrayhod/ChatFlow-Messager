@@ -24,6 +24,7 @@ import {
   useColorScheme,
   ActivityIndicator,
   Alert,
+  BackHandler,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -165,6 +166,28 @@ export default function ChatsScreen() {
       socket.off('status_feed_update', onFeedUpdate);
     };
   }, [token, fetchFeed, setScreenshotNotice]);
+
+  // Prevent back navigation from logging out / popping to sign-in screen
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const backAction = () => {
+        BackHandler.exitApp();
+        return true;
+      };
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+      return () => backHandler.remove();
+    }
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const onPopState = () => {
+        if (useAuthStore.getState().isAuthenticated) {
+          window.history.pushState(null, '', window.location.href);
+        }
+      };
+      window.history.pushState(null, '', window.location.href);
+      window.addEventListener('popstate', onPopState);
+      return () => window.removeEventListener('popstate', onPopState);
+    }
+  }, []);
 
   // Debounced search inside modal
   useEffect(() => {

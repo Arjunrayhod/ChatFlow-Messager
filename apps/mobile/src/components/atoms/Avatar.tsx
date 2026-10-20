@@ -9,7 +9,7 @@ import { tokens } from '../../theme/tokens';
 import { Text } from './Text';
 import { Badge, BadgeVariant } from './Badge';
 
-export type AvatarSize = 'sm' | 'md' | 'lg' | 'xl';
+export type AvatarSize = 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
 
 export interface AvatarProps {
   name: string;
@@ -40,6 +40,8 @@ export const Avatar: React.FC<AvatarProps> = ({
         return tokens.spacing.huge + tokens.spacing.xs; // 56
       case 'xl':
         return tokens.spacing.huge + tokens.spacing.xxl; // 80
+      case 'xxl':
+        return 112; // High-res WhatsApp-style hero avatar
       case 'md':
       default:
         return tokens.spacing.xxxl + tokens.spacing.xxs; // 44
@@ -58,7 +60,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   };
 
   const dimension = getSizePx();
-  const textVariant = size === 'xl' ? 'display' : size === 'lg' ? 'h2' : size === 'sm' ? 'caption' : 'bodyMedium';
+  const textVariant = size === 'xxl' || size === 'xl' ? 'display' : size === 'lg' ? 'h2' : size === 'sm' ? 'caption' : 'bodyMedium';
 
   const avatarContent = (
     <View

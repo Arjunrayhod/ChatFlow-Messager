@@ -49,10 +49,16 @@ export default function SignInScreen() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
-  const { signInWithGoogle, isLoading, error } = useAuthStore();
+  const { signInWithGoogle, isLoading, error, isAuthenticated, isOnboarded } = useAuthStore();
   const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
   const [gmailInput, setGmailInput] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isAuthenticated && isOnboarded) {
+      router.replace('/(tabs)/chats');
+    }
+  }, [isAuthenticated, isOnboarded, router]);
 
   const handleGoogleButtonClick = async () => {
     setValidationError(null);

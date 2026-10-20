@@ -24,6 +24,7 @@ function startServer(): void {
 
   // Initialize Socket.IO with CORS
   const io = initSocketServer(httpServer, env.CORS_ORIGIN);
+  app.set('io', io);
   scheduledMessageWorker.start(io);
 
   // Start background 24-hour status expiration cleaner worker

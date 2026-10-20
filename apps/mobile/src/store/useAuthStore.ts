@@ -29,6 +29,7 @@ export interface AuthState {
   isAuthenticated: boolean;
   isOnboarded: boolean;
   isLoading: boolean;
+  isHydrated: boolean;
   error: string | null;
 
   signInWithGoogle: (gmailAddress?: string, explicitUid?: string) => Promise<boolean>;
@@ -79,6 +80,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isOnboarded: false,
       isLoading: false,
+      isHydrated: Platform.OS === 'web',
       error: null,
 
       /**
@@ -259,41 +261,49 @@ export const useAuthStore = create<AuthState>()(
 }),
     {
       name: 'chatflow_auth_session',
-      storage: createJSONStorage(() => ({
-        getItem: async (key) => {
-          try {
-            if (Platform.OS === 'web') return webSafeStorage.getItem(key);
-            if (SecureStore && typeof SecureStore.getItemAsync === 'function') {
-              return await SecureStore.getItemAsync(key);
+      storage: createJSONStorage(() =>
+        Platform.OS === 'web'
+          ? {
+              getItem: (key) => webSafeStorage.getItem(key),
+              setItem: (key, value) => webSafeStorage.setItem(key, value),
+              removeItem: (key) => webSafeStorage.removeItem(key),
             }
-          } catch (e) {
-            console.warn('[useAuthStore] SecureStore getItemAsync failed safely:', e);
-          }
-          return null;
-        },
-        setItem: async (key, value) => {
-          try {
-            if (Platform.OS === 'web') {
-              webSafeStorage.setItem(key, value);
-            } else if (SecureStore && typeof SecureStore.setItemAsync === 'function') {
-              await SecureStore.setItemAsync(key, value);
+          : {
+              getItem: async (key) => {
+                try {
+                  if (SecureStore && typeof SecureStore.getItemAsync === 'function') {
+                    return await SecureStore.getItemAsync(key);
+                  }
+                } catch (e) {
+                  console.warn('[useAuthStore] SecureStore getItemAsync failed safely:', e);
+                }
+                return null;
+              },
+              setItem: async (key, value) => {
+                try {
+                  if (SecureStore && typeof SecureStore.setItemAsync === 'function') {
+                    await SecureStore.setItemAsync(key, value);
+                  }
+                } catch (e) {
+                  console.warn('[useAuthStore] SecureStore setItemAsync failed safely:', e);
+                }
+              },
+              removeItem: async (key) => {
+                try {
+                  if (SecureStore && typeof SecureStore.deleteItemAsync === 'function') {
+                    await SecureStore.deleteItemAsync(key);
+                  }
+                } catch (e) {
+                  console.warn('[useAuthStore] SecureStore deleteItemAsync failed safely:', e);
+                }
+              },
             }
-          } catch (e) {
-            console.warn('[useAuthStore] SecureStore setItemAsync failed safely:', e);
-          }
-        },
-        removeItem: async (key) => {
-          try {
-            if (Platform.OS === 'web') {
-              webSafeStorage.removeItem(key);
-            } else if (SecureStore && typeof SecureStore.deleteItemAsync === 'function') {
-              await SecureStore.deleteItemAsync(key);
-            }
-          } catch (e) {
-            console.warn('[useAuthStore] SecureStore deleteItemAsync failed safely:', e);
-          }
-        },
-      })),
+      ),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.isHydrated = true;
+        }
+      },
       partialize: (state) => ({
         token: state.token,
         user: state.user,

@@ -4,7 +4,7 @@
  */
 
 import { ChatMessage, MessageDeliveryStatus, MessageType } from './chat';
-import { UserPresenceStatus } from './user';
+import { User, UserPresenceStatus } from './user';
 import { CallType, CallParticipant } from './call';
 
 /** Client-to-server socket event payloads. */
@@ -158,6 +158,9 @@ export interface ServerToClientEvents {
 
   // Status Story Feed
   status_feed_update: (payload: { userId: string; action: 'created' | 'deleted' }) => void;
+
+  // Real-time Profile Updates (DP, Display Name, Bio)
+  user_profile_updated: (payload: { user: User }) => void;
 
   // Generic errors
   error: (payload: { code: string; message: string }) => void;

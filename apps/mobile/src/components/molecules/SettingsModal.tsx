@@ -52,7 +52,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? tokens.colors.dark : tokens.colors.light;
 
-  const { user, signOut, updateProfile } = useAuthStore();
+  const { user, token, signOut, updateProfile } = useAuthStore();
   const { latencyMs, isConnected } = useHealthStore();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -154,12 +154,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         throw new Error('Image data read nahi ho paya');
       }
 
-      const uploadResult = await uploadMedia({
-        fileName: asset.fileName || 'profile_avatar.jpg',
-        mimeType: asset.mimeType || 'image/jpeg',
-        data: base64Data,
-        isHD: true,
-      });
+      const uploadResult = await uploadMedia(
+        {
+          fileName: asset.fileName || 'profile_avatar.jpg',
+          mimeType: asset.mimeType || 'image/jpeg',
+          data: base64Data,
+          isHD: true,
+        },
+        token || undefined
+      );
 
       if (!uploadResult.ok) {
         throw new Error(uploadResult.error.message || 'Image upload failed');

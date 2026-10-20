@@ -436,6 +436,20 @@ export class DatabaseService {
    */
   private enrichAndSortContacts(ownerId: string, contacts: Contact[]): Contact[] {
     for (const contact of contacts) {
+      const latestUser =
+        this.memoryUsers.get(contact.contactUserId) ||
+        Array.from(this.memoryUsers.values()).find(
+          (u) => u.id === contact.contactUserId || u.firebaseUid === contact.contactUserId
+        );
+      if (latestUser && contact.user) {
+        contact.user.avatarUrl = latestUser.avatarUrl || contact.user.avatarUrl;
+        contact.user.displayName = latestUser.displayName || contact.user.displayName;
+        contact.user.username = latestUser.username || contact.user.username;
+        contact.user.bio = latestUser.bio || contact.user.bio;
+        contact.user.presenceStatus = latestUser.presenceStatus || contact.user.presenceStatus;
+        contact.user.lastSeen = latestUser.lastSeen || contact.user.lastSeen;
+      }
+
       const chatId = [ownerId, contact.contactUserId].sort().join('_');
       const messages = this.memoryMessages.get(chatId) || [];
       if (messages.length > 0) {

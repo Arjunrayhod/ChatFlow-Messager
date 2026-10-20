@@ -191,9 +191,33 @@ export default function RootLayout() {
       }
     };
 
+    const onProfileUpdated = (payload: { user: any }) => {
+      const u = payload?.user;
+      if (!u) return;
+      const { contacts } = useChatStore.getState();
+      const updatedContacts = contacts.map((c) => {
+        if (c.contactUserId === u.id || c.user?.username === u.username) {
+          return {
+            ...c,
+            user: {
+              ...c.user,
+              displayName: u.displayName || c.user?.displayName,
+              avatarUrl: u.avatarUrl || c.user?.avatarUrl,
+              bio: u.bio || c.user?.bio,
+              presenceStatus: u.presenceStatus || c.user?.presenceStatus,
+            },
+          };
+        }
+        return c;
+      });
+      useChatStore.setState({ contacts: updatedContacts });
+    };
+
     socket.on('message_new', onGlobalMessage);
+    socket.on('user_profile_updated', onProfileUpdated);
     return () => {
       socket.off('message_new', onGlobalMessage);
+      socket.off('user_profile_updated', onProfileUpdated);
     };
   }, [token]);
 

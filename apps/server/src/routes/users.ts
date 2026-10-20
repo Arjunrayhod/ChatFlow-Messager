@@ -253,15 +253,15 @@ usersRouter.get('/me', requireAuth, async (req: Request, res: Response): Promise
  * Updates editable profile attributes.
  */
 usersRouter.patch('/me', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const user = await db.findUserByFirebaseUid(req.uid);
+  let user = (await db.findUserByFirebaseUid(req.uid)) || (await db.findUserById(req.uid));
   if (!user) {
-    res.status(404).json(
-      createErrorResponse(
-        'NOT_FOUND',
-        'User profile not found'
-      )
-    );
-    return;
+    const fallbackName = (req.userEmail && req.userEmail.split('@')[0]) || req.uid;
+    user = await db.createUser({
+      firebaseUid: req.uid,
+      email: req.userEmail || `${req.uid}@chatflow.local`,
+      username: fallbackName,
+      displayName: fallbackName,
+    });
   }
 
   const parseResult = updateProfileSchema.safeParse(req.body);
@@ -295,6 +295,23 @@ usersRouter.patch('/me', requireAuth, async (req: Request, res: Response): Promi
     ...otherUpdates,
     ...(username ? { username } : {}),
   });
+
+  if (updated) {
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('user_profile_updated', {
+        user: {
+          id: updated.id,
+          username: updated.username,
+          displayName: updated.displayName,
+          avatarUrl: updated.avatarUrl,
+          bio: updated.bio,
+          presenceStatus: updated.presenceStatus,
+          lastSeen: updated.lastSeen,
+        },
+      });
+    }
+  }
 
   res.status(200).json(createSuccessResponse(updated));
 });

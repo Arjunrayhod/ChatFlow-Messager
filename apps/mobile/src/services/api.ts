@@ -523,15 +523,33 @@ export interface UploadMediaResponse {
  * Uploads original uncompressed HD photo or video to ChatFlow server.
  */
 export async function uploadMedia(
-  payload: UploadMediaPayload
+  payload: UploadMediaPayload,
+  token?: string
 ): Promise<ApiResponse<UploadMediaResponse>> {
   try {
+    let activeToken = token;
+    if (!activeToken && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const storedAuth = window.localStorage.getItem('chatflow_auth');
+        if (storedAuth) {
+          const parsed = JSON.parse(storedAuth);
+          activeToken = parsed?.state?.token;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+    if (activeToken) {
+      headers['Authorization'] = `Bearer ${activeToken}`;
+    }
+
     const response = await fetchWithTimeout(`${API_BASE_URL}/api/upload`, {
       method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(payload),
     });
     const data = await response.json();

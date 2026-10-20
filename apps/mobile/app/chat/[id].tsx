@@ -26,6 +26,7 @@ import {
   Modal,
   TextInput,
   Alert,
+  BackHandler,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,6 +40,7 @@ import { IconButton } from '../../src/components/atoms/IconButton';
 import { MessageBubble } from '../../src/components/molecules/MessageBubble';
 import { MediaPreviewModal, SelectedMediaFile } from '../../src/components/molecules/MediaPreviewModal';
 import { MediaLightboxModal, MediaLightboxData } from '../../src/components/molecules/MediaLightboxModal';
+import { ContactProfileModal } from '../../src/components/molecules/ContactProfileModal';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useMessageStore } from '../../src/store/useMessageStore';
 import { useCallStore } from '../../src/store/useCallStore';
@@ -115,6 +117,36 @@ export default function ChatRoomScreen() {
   const recipientName = params.name || 'Conversation';
   const recipientUsername = params.username ? `@${params.username.replace(/^@/, '')}` : '';
 
+  const [isContactProfileOpen, setIsContactProfileOpen] = useState(false);
+
+  // Look up contact from store to get live avatarUrl, presence and bio
+  const contact = useChatStore((state) =>
+    state.contacts.find(
+      (c) => c.contactUserId === recipientId || c.user?.username === (params.username || '').replace(/^@/, '')
+    )
+  );
+
+  const recipientAvatarUrl = contact?.user?.avatarUrl;
+  const effectiveDisplayName = contact?.nickname || contact?.user?.displayName || recipientName;
+  const effectiveUsername = (contact?.user?.username || params.username || '').replace(/^@/, '');
+  const effectiveBio = contact?.user?.bio;
+
+  // Ensure Android hardware back button cleanly returns to Chats tab without logging out
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const backAction = () => {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/(tabs)/chats');
+        }
+        return true;
+      };
+      const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
+      return () => handler.remove();
+    }
+  }, [router]);
+
   // File selection handler
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -183,15 +215,18 @@ export default function ChatRoomScreen() {
     setIsUploading(true);
 
     try {
-      const uploadRes = await api.uploadMedia({
-        fileName: media.fileName,
-        mimeType: media.mimeType,
-        data: media.dataUrl,
-        isHD,
-        width: media.width,
-        height: media.height,
-        duration: media.duration,
-      });
+      const uploadRes = await api.uploadMedia(
+        {
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          data: media.dataUrl,
+          isHD,
+          width: media.width,
+          height: media.height,
+          duration: media.duration,
+        },
+        token || undefined
+      );
 
       const mediaUrl = uploadRes.ok && uploadRes.data ? uploadRes.data.url : media.dataUrl;
 
@@ -573,18 +608,39 @@ export default function ChatRoomScreen() {
             backgroundColor: theme.primary,
           },
           headerTintColor: theme.textInverse,
+          headerLeft: () => (
+            <Pressable
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/(tabs)/chats');
+                }
+              }}
+              style={{ paddingRight: 10, paddingLeft: 4, paddingVertical: 8, justifyContent: 'center' }}
+              accessibilityRole="button"
+              accessibilityLabel="Back to Chats"
+            >
+              <Ionicons name="arrow-back" size={24} color={theme.textInverse} />
+            </Pressable>
+          ),
           headerTitle: () => (
-            <View style={styles.headerTitleRow}>
-              <Avatar name={recipientName} size="sm" presence="online" />
+            <Pressable
+              onPress={() => setIsContactProfileOpen(true)}
+              style={styles.headerTitleRow}
+              accessibilityRole="button"
+              accessibilityLabel="View Contact Profile Details"
+            >
+              <Avatar name={effectiveDisplayName} uri={recipientAvatarUrl} size="sm" presence="online" />
               <View style={styles.headerTextCol}>
                 <Text variant="h3" colorRole="inverse" numberOfLines={1}>
-                  {recipientName}
+                  {effectiveDisplayName}
                 </Text>
                 <Text variant="caption" colorRole="inverse" style={{ opacity: 0.9 }}>
-                  {recipientUsername} • Online
+                  {effectiveUsername ? `@${effectiveUsername} • Online` : 'Online'}
                 </Text>
               </View>
-            </View>
+            </Pressable>
           ),
           headerRight: () => (
             <View style={styles.headerActions}>
@@ -1006,6 +1062,29 @@ export default function ChatRoomScreen() {
           </View>
         </View>
       </Modal>
+
+      <ContactProfileModal
+        visible={isContactProfileOpen}
+        onClose={() => setIsContactProfileOpen(false)}
+        user={{
+          id: recipientId,
+          username: effectiveUsername || 'user',
+          displayName: effectiveDisplayName,
+          avatarUrl: recipientAvatarUrl,
+          bio: effectiveBio,
+        }}
+        onStartCall={(callType) => {
+          void startCall(
+            {
+              id: recipientId,
+              username: effectiveUsername || 'user',
+              displayName: effectiveDisplayName,
+              avatarUrl: recipientAvatarUrl || undefined,
+            },
+            callType
+          );
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
