@@ -44,7 +44,16 @@ messagesRouter.get(
       return;
     }
 
-    const currentUser = await db.findUserByFirebaseUid(req.uid);
+    let currentUser = (await db.findUserByFirebaseUid(req.uid)) || (await db.findUserById(req.uid));
+    if (!currentUser) {
+      const fallbackName = (req.userEmail && req.userEmail.split('@')[0]) || req.uid;
+      currentUser = await db.createUser({
+        firebaseUid: req.uid,
+        email: req.userEmail || `${req.uid}@chatflow.local`,
+        username: fallbackName,
+        displayName: fallbackName,
+      });
+    }
     if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
       res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
       return;
@@ -285,7 +294,16 @@ messagesRouter.post(
       return;
     }
 
-    const currentUser = await db.findUserByFirebaseUid(req.uid);
+    let currentUser = (await db.findUserByFirebaseUid(req.uid)) || (await db.findUserById(req.uid));
+    if (!currentUser) {
+      const fallbackName = (req.userEmail && req.userEmail.split('@')[0]) || req.uid;
+      currentUser = await db.createUser({
+        firebaseUid: req.uid,
+        email: req.userEmail || `${req.uid}@chatflow.local`,
+        username: fallbackName,
+        displayName: fallbackName,
+      });
+    }
     if (!currentUser || !(await db.canAccessChat(chatId, currentUser.id))) {
       res.status(403).json(createErrorResponse('FORBIDDEN', 'You are not a participant in this chat'));
       return;
@@ -311,19 +329,34 @@ messagesRouter.post(
     }
 
     // Ensure reciprocal contacts in inbox
-    const participants = chatId.split('_');
-    const recipientId = participants.find((id) => id !== senderId);
+    const senderCandidates = [senderId, currentUser.id, currentUser.firebaseUid, currentUser.username].filter(Boolean) as string[];
+    let recipientId: string | null = null;
+    for (const sId of senderCandidates) {
+      if (chatId.startsWith(`${sId}_`)) {
+        recipientId = chatId.slice(sId.length + 1);
+        break;
+      }
+      if (chatId.endsWith(`_${sId}`)) {
+        recipientId = chatId.slice(0, -(sId.length + 1));
+        break;
+      }
+    }
+    if (!recipientId) {
+      const parts = chatId.split('_');
+      recipientId = parts.find((id) => !senderCandidates.includes(id)) || null;
+    }
+
     if (recipientId) {
-      const recipientUser = await db.findUserById(recipientId);
+      const recipientUser = (await db.findUserById(recipientId)) || (await db.findUserByFirebaseUid(recipientId)) || (await db.findUserByUsername(recipientId));
       const senderUser = await db.findUserById(senderId);
       if (recipientUser && senderUser) {
-        const hasSender = await db.hasContact(senderId, recipientId);
+        const hasSender = await db.hasContact(senderId, recipientUser.id);
         if (!hasSender) {
           await db.addContact(senderId, recipientUser);
         }
-        const hasRecipient = await db.hasContact(recipientId, senderId);
+        const hasRecipient = await db.hasContact(recipientUser.id, senderId);
         if (!hasRecipient) {
-          await db.addContact(recipientId, senderUser);
+          await db.addContact(recipientUser.id, senderUser);
         }
       }
     }

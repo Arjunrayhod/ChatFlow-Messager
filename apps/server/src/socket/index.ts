@@ -158,6 +158,14 @@ export function initSocketServer(
           return;
         }
         let senderUser = (await db.findUserById(userId)) || (await db.findUserByFirebaseUid(userId));
+        if (!senderUser) {
+          senderUser = await db.createUser({
+            firebaseUid: userId,
+            email: socket.data.email || `${username || userId}@chatflow.local`,
+            username: socket.data.username || username || userId,
+            displayName: socket.data.username || username || 'User',
+          });
+        }
         const effectiveSenderId = senderUser ? senderUser.id : userId;
 
         if (senderUser) {
@@ -182,8 +190,30 @@ export function initSocketServer(
         });
 
         // Ensure both participants have each other in their inbox contacts
-        const participants = chatId.split('_');
-        const recipientId = participants.find((id) => id !== effectiveSenderId && id !== userId);
+        const senderCandidates = [
+          effectiveSenderId,
+          userId,
+          senderUser?.id,
+          senderUser?.firebaseUid,
+          senderUser?.username,
+        ].filter(Boolean) as string[];
+
+        let recipientId: string | null = null;
+        for (const sId of senderCandidates) {
+          if (chatId.startsWith(`${sId}_`)) {
+            recipientId = chatId.slice(sId.length + 1);
+            break;
+          }
+          if (chatId.endsWith(`_${sId}`)) {
+            recipientId = chatId.slice(0, -(sId.length + 1));
+            break;
+          }
+        }
+        if (!recipientId) {
+          const parts = chatId.split('_');
+          recipientId = parts.find((id) => !senderCandidates.includes(id)) || null;
+        }
+
         if (recipientId) {
           // ALSO emit to personal user rooms so inbox/chats list receives it immediately
           io.to(`user_${recipientId}`).emit('message_new', {
@@ -195,18 +225,48 @@ export function initSocketServer(
             clientTempId,
           });
 
-          const recipientUser = (await db.findUserById(recipientId)) || (await db.findUserByFirebaseUid(recipientId));
-          if (recipientUser && senderUser) {
+          let recipientUser =
+            (await db.findUserById(recipientId)) ||
+            (await db.findUserByFirebaseUid(recipientId)) ||
+            (await db.findUserByUsername(recipientId));
+
+          if (!recipientUser) {
+            const allSockets = await io.fetchSockets();
+            const recSocket = allSockets.find(
+              (s) =>
+                s.data.userId === recipientId ||
+                (s.data.username && s.data.username.toLowerCase() === recipientId.toLowerCase().replace(/^@/, '')) ||
+                (s.data.email && s.data.email.toLowerCase() === recipientId.toLowerCase())
+            );
+            if (recSocket) {
+              recipientUser = await db.createUser({
+                firebaseUid: recSocket.data.userId,
+                email: recSocket.data.email || `${recipientId}@chatflow.local`,
+                username: recSocket.data.username || recipientId,
+                displayName: recSocket.data.username || recipientId,
+              });
+            }
+          }
+
+          if (recipientUser) {
             if (recipientUser.id !== recipientId) {
               io.to(`user_${recipientUser.id}`).emit('message_new', { message, clientTempId });
             }
-            const hasSender = await db.hasContact(effectiveSenderId, recipientUser.id);
-            if (!hasSender) {
-              await db.addContact(effectiveSenderId, recipientUser);
+            if (recipientUser.firebaseUid && recipientUser.firebaseUid !== recipientId) {
+              io.to(`user_${recipientUser.firebaseUid}`).emit('message_new', { message, clientTempId });
             }
-            const hasRecipient = await db.hasContact(recipientUser.id, effectiveSenderId);
-            if (!hasRecipient) {
-              await db.addContact(recipientUser.id, senderUser);
+            if (recipientUser.username && recipientUser.username !== recipientId) {
+              io.to(`user_${recipientUser.username}`).emit('message_new', { message, clientTempId });
+            }
+            if (senderUser) {
+              const hasSender = await db.hasContact(effectiveSenderId, recipientUser.id);
+              if (!hasSender) {
+                await db.addContact(effectiveSenderId, recipientUser);
+              }
+              const hasRecipient = await db.hasContact(recipientUser.id, effectiveSenderId);
+              if (!hasRecipient) {
+                await db.addContact(recipientUser.id, senderUser);
+              }
             }
           }
           if (senderUser) {

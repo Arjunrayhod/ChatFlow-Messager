@@ -81,8 +81,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { contacts, activeChatId } = get();
 
     // Determine the peer userId
-    const parts = message.chatId.split('_');
-    const peerUserId = parts.find((p) => p !== currentUserId) || message.senderId;
+    let peerUserId = message.senderId !== currentUserId ? message.senderId : '';
+    if (!peerUserId) {
+      if (message.chatId.startsWith(`${currentUserId}_`)) {
+        peerUserId = message.chatId.slice(currentUserId.length + 1);
+      } else if (message.chatId.endsWith(`_${currentUserId}`)) {
+        peerUserId = message.chatId.slice(0, -(currentUserId.length + 1));
+      } else {
+        const parts = message.chatId.split('_');
+        peerUserId = parts.find((p) => p !== currentUserId) || message.senderId;
+      }
+    }
 
     let snippet = message.content;
     if (message.type === 'image') snippet = '📷 Photo';
