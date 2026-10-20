@@ -16,6 +16,7 @@ import {
   useColorScheme,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -66,23 +67,31 @@ export const StatusViewersModal: React.FC<StatusViewersModalProps> = ({
 
   const handleDelete = () => {
     if (!status) return;
-    Alert.alert(
-      'Delete Status Update?',
-      'This status will be deleted immediately for everyone before the 24-hour expiration.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setIsDeleting(true);
-            onDeleteStatus(status.id);
-            setIsDeleting(false);
-            onClose();
+    const doDelete = () => {
+      setIsDeleting(true);
+      onDeleteStatus(status.id);
+      setIsDeleting(false);
+      onClose();
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Delete Status Update? This status will be deleted immediately for everyone.')) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Status Update?',
+        'This status will be deleted immediately for everyone before the 24-hour expiration.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: doDelete,
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const formatViewedTime = (isoString: string) => {

@@ -21,6 +21,7 @@ import {
   Dimensions,
   Platform,
   TextInput,
+  Alert,
   useColorScheme,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +32,8 @@ import { Avatar } from '../atoms/Avatar';
 import { StatusItem, UserStoryGroup } from '@chatflow/shared';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useStatusStore } from '../../store/useStatusStore';
+import { useMessageStore } from '../../store/useMessageStore';
+import { useChatStore } from '../../store/useChatStore';
 import { StatusViewersModal } from './StatusViewersModal';
 import { resolveMediaUrl } from '../../services/api';
 
@@ -64,6 +67,11 @@ export const StatusViewerModal: React.FC<StatusViewerModalProps> = ({
   const [isPaused, setIsPaused] = useState(false);
   const [isViewersOpen, setIsViewersOpen] = useState(false);
   const [screenshotAlertText, setScreenshotAlertText] = useState<string | null>(null);
+
+  // Status Reply State
+  const [replyText, setReplyText] = useState('');
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [replySuccessMessage, setReplySuccessMessage] = useState(false);
 
   const stories = storyGroup?.stories || [];
   const currentStory: StatusItem | undefined = stories[currentIndex];
@@ -198,6 +206,85 @@ export const StatusViewerModal: React.FC<StatusViewerModalProps> = ({
     }
   };
 
+  const handleDeleteCurrentStory = () => {
+    if (!currentStory || !token) return;
+    setIsPaused(true);
+
+    const executeDelete = async () => {
+      const ok = await deleteStory(token, currentStory.id);
+      if (ok) {
+        if (stories.length <= 1) {
+          onClose();
+        } else {
+          goToNext();
+        }
+      }
+      setIsPaused(false);
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Delete this status update? It will be removed immediately for everyone.')) {
+        void executeDelete();
+      } else {
+        setIsPaused(false);
+      }
+    } else {
+      Alert.alert(
+        'Delete Status?',
+        'This status will be deleted immediately for everyone.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => setIsPaused(false) },
+          { text: 'Delete', style: 'destructive', onPress: () => void executeDelete() },
+        ]
+      );
+    }
+  };
+
+  const handleSendReply = () => {
+    if (!replyText.trim() || !user || !token || !storyGroup || !currentStory) return;
+    const text = replyText.trim();
+    setIsSendingReply(true);
+
+    try {
+      const peerId = storyGroup.userId;
+      const chatId = [user.id, peerId].sort().join('_');
+
+      let snippet = '';
+      if (currentStory.mediaType === 'text') {
+        snippet = `"${currentStory.caption || 'Status'}"`;
+      } else {
+        snippet = currentStory.caption ? `📷 Photo: "${currentStory.caption}"` : '📷 Photo Status';
+      }
+
+      const formattedContent = `Replied to status (${snippet}):\n${text}`;
+
+      useMessageStore.getState().sendMessage(
+        chatId,
+        formattedContent,
+        user.id,
+        'text',
+        currentStory.mediaUrl || null,
+        {
+          replyToStatusId: currentStory.id,
+          statusType: currentStory.mediaType,
+          statusCaption: currentStory.caption,
+        }
+      );
+
+      // Save peer to contacts in background
+      void useChatStore.getState().addContact(token, storyGroup.username);
+
+      setReplyText('');
+      setReplySuccessMessage(true);
+      setTimeout(() => setReplySuccessMessage(false), 3000);
+    } catch {
+      // ignore
+    } finally {
+      setIsSendingReply(false);
+      setIsPaused(false);
+    }
+  };
+
   if (!visible || !storyGroup || !currentStory) {
     return null;
   }
@@ -323,6 +410,21 @@ export const StatusViewerModal: React.FC<StatusViewerModalProps> = ({
             </View>
 
             <View style={styles.headerRightActions}>
+              {/* Delete Own Story Button */}
+              {isOwnStory && (
+                <Pressable
+                  onPress={handleDeleteCurrentStory}
+                  style={({ pressed }) => [
+                    styles.deleteIconButton,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete status"
+                >
+                  <Ionicons name="trash-outline" size={20} color="#FF4D4F" />
+                </Pressable>
+              )}
+
               {/* Snapchat Screenshot Test Trigger Button (Available for testing) */}
               {!isOwnStory && (
                 <Pressable
@@ -356,6 +458,16 @@ export const StatusViewerModal: React.FC<StatusViewerModalProps> = ({
             </View>
           </View>
         </View>
+
+        {/* Reply Sent Success Toast Badge */}
+        {replySuccessMessage && (
+          <View style={styles.replySuccessBadge}>
+            <Ionicons name="checkmark-circle" size={18} color="#25D366" />
+            <Text variant="caption" style={{ color: '#FFFFFF', marginLeft: 6, fontWeight: '600' }}>
+              Reply sent to @{storyGroup.username}!
+            </Text>
+          </View>
+        )}
 
         {/* Bottom Bar */}
         <View
@@ -392,10 +504,26 @@ export const StatusViewerModal: React.FC<StatusViewerModalProps> = ({
                   placeholder={`Reply to ${storyGroup.displayName}...`}
                   placeholderTextColor="rgba(255, 255, 255, 0.6)"
                   style={styles.replyInput}
+                  value={replyText}
+                  onChangeText={setReplyText}
+                  onFocus={() => setIsPaused(true)}
+                  onBlur={() => {
+                    if (!replyText) setIsPaused(false);
+                  }}
+                  onSubmitEditing={handleSendReply}
+                  returnKeyType="send"
                 />
               </View>
               <Pressable
-                style={styles.sendReplyButton}
+                onPress={handleSendReply}
+                disabled={!replyText.trim() || isSendingReply}
+                style={({ pressed }) => [
+                  styles.sendReplyButton,
+                  {
+                    backgroundColor: replyText.trim() ? theme.primary : 'rgba(255, 255, 255, 0.25)',
+                    opacity: pressed ? 0.8 : 1,
+                  },
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="Send reply"
               >
@@ -626,5 +754,26 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.colors.light.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  deleteIconButton: {
+    padding: tokens.spacing.xs,
+    borderRadius: tokens.radii.pill,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  replySuccessBadge: {
+    position: 'absolute',
+    bottom: 80,
+    alignSelf: 'center',
+    zIndex: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.xs,
+    borderRadius: tokens.radii.pill,
+    borderWidth: 1,
+    borderColor: '#25D366',
   },
 });

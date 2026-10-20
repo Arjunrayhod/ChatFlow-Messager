@@ -511,23 +511,7 @@ export class DatabaseService {
     if (candidatePeerId && candidatePeerId !== userId) {
       const expectedChatId = [userId, candidatePeerId].sort().join('_');
       if (expectedChatId === chatId && (await this.findUserById(candidatePeerId))) {
-        if ((await this.hasContact(userId, candidatePeerId)) ||
-          (await this.hasContact(candidatePeerId, userId))) return true;
-        if (this.memoryMessages.get(chatId)?.length) return true;
-        if (this.supabase) {
-          try {
-            const { data, error } = await this.supabase
-              .from('messages')
-              .select('id')
-              .eq('chat_id', chatId)
-              .limit(1)
-              .maybeSingle();
-            if (!error && data) return true;
-          } catch (err) {
-            logger.warn({ err, chatId }, 'Supabase direct chat existence lookup failed');
-          }
-        }
-        return false;
+        return true;
       }
     }
 
